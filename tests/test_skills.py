@@ -119,3 +119,78 @@ class TestSkillLoader:
         loader = SkillLoader(str(tmp_path))
         skills = loader.load_all()
         assert len(skills) == 1
+
+
+class TestLoLGuideSkill:
+    """Tests for the League of Legends guide skill file."""
+
+    def test_lol_guide_parses(self):
+        loader = SkillLoader("skills")
+        skill = loader.load_file("skills/lol_guide.md")
+        assert skill is not None
+        assert skill.name == "League of Legends - Hướng Dẫn Toàn Diện"
+
+    def test_lol_guide_has_conditions(self):
+        parser = SkillParser()
+        with open("skills/lol_guide.md", "r", encoding="utf-8") as f:
+            skill = parser.parse(f.read())
+        assert len(skill.conditions) >= 1
+        assert "game == lol" in skill.conditions
+
+    def test_lol_guide_has_actions(self):
+        parser = SkillParser()
+        with open("skills/lol_guide.md", "r", encoding="utf-8") as f:
+            skill = parser.parse(f.read())
+        assert len(skill.actions) >= 1
+
+    def test_lol_guide_content_has_key_sections(self):
+        with open("skills/lol_guide.md", "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "## Hướng Dẫn Lên Đồ" in content
+        assert "## Khắc Chế Theo Meta Game" in content
+        assert "## Xem Lịch Sử Đối Thủ" in content
+        assert "## Meta Cấm Chọn" in content
+
+
+class TestTFTGuideSkill:
+    """Tests for the Teamfight Tactics guide skill file."""
+
+    def test_tft_guide_parses(self):
+        loader = SkillLoader("skills")
+        skill = loader.load_file("skills/tft_guide.md")
+        assert skill is not None
+        assert skill.name == "Teamfight Tactics - Hướng Dẫn Toàn Diện"
+
+    def test_tft_guide_has_conditions(self):
+        parser = SkillParser()
+        with open("skills/tft_guide.md", "r", encoding="utf-8") as f:
+            skill = parser.parse(f.read())
+        assert len(skill.conditions) >= 1
+        assert "game == tft" in skill.conditions
+
+    def test_tft_guide_has_actions(self):
+        parser = SkillParser()
+        with open("skills/tft_guide.md", "r", encoding="utf-8") as f:
+            skill = parser.parse(f.read())
+        assert len(skill.actions) >= 1
+
+    def test_tft_guide_content_has_key_sections(self):
+        with open("skills/tft_guide.md", "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "## Hướng Dẫn Lên Đồ" in content
+        assert "## Augment Tier List" in content
+        assert "## Xem Lịch Sử" in content
+        assert "## Economy" in content
+
+
+class TestAllSkillsLoader:
+    """Tests that all skill files load together correctly."""
+
+    def test_loads_all_three_skills(self):
+        loader = SkillLoader("skills")
+        skills = loader.load_all()
+        assert len(skills) == 3
+        names = [s.name for s in skills]
+        assert "Enemy Missing" in names
+        assert "League of Legends - Hướng Dẫn Toàn Diện" in names
+        assert "Teamfight Tactics - Hướng Dẫn Toàn Diện" in names
