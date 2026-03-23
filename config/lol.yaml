@@ -1,0 +1,17 @@
+game: lol
+
+capture:
+  minimap_region: [1600, 800, 300, 300]
+
+vision:
+  detect:
+    - enemy_icon
+
+mapping:
+  enemy_icon: enemy
+
+rules:
+  - name: enemy_missing
+    condition: "enemy_visible == false"
+    action: "⚠️ Enemy missing"
+    priority: high

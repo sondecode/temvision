@@ -1,0 +1,17 @@
+game: valorant
+
+capture:
+  minimap_region: [0, 0, 300, 300]
+
+vision:
+  detect:
+    - enemy_marker
+
+mapping:
+  enemy_marker: enemy
+
+rules:
+  - name: enemy_spotted
+    condition: "enemy_visible == true"
+    action: "🎯 Enemy spotted on minimap"
+    priority: high
