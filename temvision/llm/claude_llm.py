@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from temvision.llm.base import BaseLLM
+
+logger = logging.getLogger(__name__)
 
 
 class ClaudeLLM(BaseLLM):
@@ -31,7 +34,8 @@ class ClaudeLLM(BaseLLM):
                 messages=[{"role": "user", "content": prompt}],
             )
             return message.content[0].text if message.content else ""
-        except Exception:
+        except Exception as e:
+            logger.error("Claude completion failed: %s", e)
             return ""
 
     def is_available(self) -> bool:

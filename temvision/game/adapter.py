@@ -14,12 +14,11 @@ class GameAdapter(ABC):
 
     A game adapter translates raw detections into game-specific state
     and provides game-specific logic.
+
+    Subclasses must define `game_name` as a class attribute.
     """
 
-    @property
-    @abstractmethod
-    def game_name(self) -> str:
-        """Return the game identifier."""
+    game_name: str = ""
 
     @abstractmethod
     def process_detections(
@@ -50,10 +49,12 @@ class _AdapterRegistry:
         self._adapters: dict[str, type[GameAdapter]] = {}
 
     def register(self, adapter_class: type[GameAdapter]) -> type[GameAdapter]:
-        """Register a game adapter class."""
-        # Instantiate temporarily to get the name
-        instance = adapter_class.__new__(adapter_class)
-        name = instance.game_name
+        """Register a game adapter class. Can be used as a decorator."""
+        name = adapter_class.game_name
+        if not name:
+            raise ValueError(
+                f"Adapter {adapter_class.__name__} must define 'game_name' class attribute"
+            )
         self._adapters[name] = adapter_class
         return adapter_class
 

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from temvision.llm.base import BaseLLM
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiLLM(BaseLLM):
@@ -28,7 +31,8 @@ class GeminiLLM(BaseLLM):
             model = genai.GenerativeModel(self._model)
             response = model.generate_content(prompt)
             return response.text if response.text else ""
-        except Exception:
+        except Exception as e:
+            logger.error("Gemini completion failed: %s", e)
             return ""
 
     def is_available(self) -> bool:

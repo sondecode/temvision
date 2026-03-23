@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from temvision.llm.base import BaseLLM
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAILLM(BaseLLM):
@@ -30,7 +33,8 @@ class OpenAILLM(BaseLLM):
                 temperature=0.3,
             )
             return response.choices[0].message.content or ""
-        except Exception:
+        except Exception as e:
+            logger.error("OpenAI completion failed: %s", e)
             return ""
 
     def is_available(self) -> bool:

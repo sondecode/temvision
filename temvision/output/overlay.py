@@ -63,7 +63,6 @@ class Overlay:
             "low": "⚪",
         }
         icon = priority_icons.get(message.priority, "🟢")
-        logger.info("%s %s", icon, message.text)
         print(f"{icon} {message.text}")
 
     def _show_gui(self, message: OverlayMessage) -> None:

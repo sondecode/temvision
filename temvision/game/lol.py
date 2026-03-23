@@ -13,9 +13,7 @@ from temvision.vision.engine import Detection
 class LoLAdapter(GameAdapter):
     """Adapter for League of Legends."""
 
-    @property
-    def game_name(self) -> str:
-        return "lol"
+    game_name = "lol"
 
     def __init__(self) -> None:
         self._state = GameState(game="lol")
