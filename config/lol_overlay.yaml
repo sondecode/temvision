@@ -1,0 +1,35 @@
+# LoL Desktop Overlay Configuration
+# OP.GG-style overlay settings
+
+game: lol
+
+overlay:
+  update_interval: 1.0
+  max_suggestions: 5
+
+# Live Client API settings
+client_api:
+  base_url: "https://127.0.0.1:2999"
+  timeout: 2.0
+
+# Riot API settings (requires RIOT_API_KEY env var)
+riot_api:
+  region: "na"
+  timeout: 5.0
+  match_history_count: 10
+
+# Suggestion engine thresholds
+suggestions:
+  hp_low_percent: 30.0
+  hp_critical_percent: 15.0
+  gold_advantage: 500.0
+  gold_large_advantage: 1500.0
+  level_advantage: 1
+  level_large_advantage: 2
+  cs_advantage: 20
+
+# Game detection
+detection:
+  process_names:
+    - "league of legends.exe"
+    - "leagueclient.exe"
