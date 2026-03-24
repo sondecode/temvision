@@ -78,12 +78,77 @@ class GameData:
         avg_enemy_level = sum(e.level for e in self.enemies) / len(self.enemies)
         return self.active_player.level - avg_enemy_level
 
+    @property
+    def team_total_gold(self) -> float:
+        """Calculate total team gold (including active player)."""
+        total = 0.0
+        if self.active_player:
+            total += self.active_player.current_gold
+        total += sum(a.current_gold for a in self.allies)
+        return total
+
+    @property
+    def enemy_total_gold(self) -> float:
+        """Calculate total enemy team gold."""
+        return sum(e.current_gold for e in self.enemies)
+
+    @property
+    def team_total_kills(self) -> int:
+        """Calculate total team kills."""
+        total = 0
+        if self.active_player:
+            total += self.active_player.kills
+        total += sum(a.kills for a in self.allies)
+        return total
+
+    @property
+    def enemy_total_kills(self) -> int:
+        """Calculate total enemy kills."""
+        return sum(e.kills for e in self.enemies)
+
+    @property
+    def team_gold_diff(self) -> float:
+        """Calculate total gold difference (team vs enemy team)."""
+        return self.team_total_gold - self.enemy_total_gold
+
+    @property
+    def team_kill_diff(self) -> int:
+        """Calculate total kill difference (team vs enemy team)."""
+        return self.team_total_kills - self.enemy_total_kills
+
     def get_enemy_by_position(self, position: str) -> Optional[PlayerData]:
         """Get enemy player by position."""
         for enemy in self.enemies:
             if enemy.position.lower() == position.lower():
                 return enemy
         return None
+
+
+@dataclass
+class PostGameStats:
+    """Post-game analysis data."""
+
+    game_duration: float = 0.0
+    player_champion: str = ""
+    win: bool = False
+    kills: int = 0
+    deaths: int = 0
+    assists: int = 0
+    total_damage: float = 0.0
+    gold_earned: float = 0.0
+    cs: int = 0
+    cs_per_min: float = 0.0
+    vision_score: float = 0.0
+    kda_ratio: float = 0.0
+    performance_score: float = 0.0
+    mvp: bool = False
+    grade: str = ""
+    all_player_stats: list = field(default_factory=list)
+
+    @property
+    def kda_string(self) -> str:
+        """Return KDA as formatted string."""
+        return f"{self.kills}/{self.deaths}/{self.assists}"
 
 
 @dataclass

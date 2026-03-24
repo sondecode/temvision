@@ -33,7 +33,9 @@ SAMPLE_RAW_DATA = {
                 "assists": 8,
                 "creepScore": 150,
             },
-            "items": [],
+            "items": [
+                {"itemID": 3006, "displayName": "Berserker's Greaves", "count": 1},
+            ],
             "summonerSpells": {
                 "summonerSpellOne": {"displayName": "Flash"},
                 "summonerSpellTwo": {"displayName": "Heal"},
@@ -67,6 +69,75 @@ SAMPLE_RAW_DATA = {
         "mapName": "Map11",
     },
     "events": {"Events": []},
+}
+
+# Sample data with dragon kill event
+SAMPLE_RAW_DATA_WITH_DRAGON = {
+    "activePlayer": {
+        "riotIdGameName": "TestPlayer",
+        "summonerName": "TestPlayer",
+        "level": 10,
+    },
+    "allPlayers": [
+        {
+            "riotIdGameName": "TestPlayer",
+            "summonerName": "TestPlayer",
+            "championName": "Jinx",
+            "team": "ORDER",
+            "level": 10,
+            "position": "BOTTOM",
+            "isDead": False,
+            "respawnTimer": 0.0,
+            "scores": {
+                "kills": 5,
+                "deaths": 2,
+                "assists": 8,
+                "creepScore": 150,
+            },
+            "items": [],
+            "summonerSpells": {
+                "summonerSpellOne": {"displayName": "Flash"},
+                "summonerSpellTwo": {"displayName": "Heal"},
+            },
+        },
+        {
+            "riotIdGameName": "Enemy1",
+            "summonerName": "Enemy1",
+            "championName": "Caitlyn",
+            "team": "CHAOS",
+            "level": 8,
+            "position": "BOTTOM",
+            "isDead": False,
+            "respawnTimer": 0.0,
+            "scores": {
+                "kills": 2,
+                "deaths": 5,
+                "assists": 3,
+                "creepScore": 100,
+            },
+            "items": [],
+            "summonerSpells": {
+                "summonerSpellOne": {"displayName": "Flash"},
+                "summonerSpellTwo": {"displayName": "Heal"},
+            },
+        },
+    ],
+    "gameData": {
+        "gameTime": 720.0,
+        "gameMode": "CLASSIC",
+        "mapName": "Map11",
+    },
+    "events": {
+        "Events": [
+            {
+                "EventName": "DragonKill",
+                "EventTime": 350.0,
+                "KillerName": "TestPlayer",
+                "DragonType": "Infernal",
+                "Assisters": [],
+            },
+        ]
+    },
 }
 
 
@@ -152,6 +223,14 @@ class TestLoLOverlayAppDualSpeed:
         app = LoLOverlayApp()
         assert app.feature_engine is not None
 
+    def test_has_objective_tracker(self):
+        app = LoLOverlayApp()
+        assert app.objective_tracker is not None
+
+    def test_has_post_game_analyzer(self):
+        app = LoLOverlayApp()
+        assert app.post_game_analyzer is not None
+
     def test_process_tick_populates_features(self):
         app = LoLOverlayApp()
         app.process_tick(SAMPLE_RAW_DATA)
@@ -167,6 +246,21 @@ class TestLoLOverlayAppDualSpeed:
         # Events list should exist (may be empty on first tick)
         assert isinstance(app.last_events, list)
 
+    def test_process_tick_populates_objective_timers(self):
+        app = LoLOverlayApp()
+        app.process_tick(SAMPLE_RAW_DATA)
+
+        assert app.last_objective_timers is not None
+
+    def test_process_tick_with_dragon_event(self):
+        app = LoLOverlayApp()
+        app.process_tick(SAMPLE_RAW_DATA_WITH_DRAGON)
+
+        timers = app.last_objective_timers
+        assert timers is not None
+        assert timers.dragon.kill_count == 1
+        assert timers.dragon_kills_ally == 1
+
     def test_stop_resets_events_and_features(self):
         app = LoLOverlayApp()
         app.process_tick(SAMPLE_RAW_DATA)
@@ -176,6 +270,7 @@ class TestLoLOverlayAppDualSpeed:
 
         assert app._last_events == []
         assert app._last_suggestions == []
+        assert app._last_objective_timers is None
 
     def test_process_tick_returns_suggestions(self):
         app = LoLOverlayApp()

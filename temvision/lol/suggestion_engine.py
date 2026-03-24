@@ -75,6 +75,8 @@ class SuggestionEngine:
         suggestions.extend(self._check_cs(game_data))
         suggestions.extend(self._check_death_state(game_data))
         suggestions.extend(self._check_team_fights(game_data))
+        suggestions.extend(self._check_game_phase(game_data))
+        suggestions.extend(self._check_team_advantage(game_data))
 
         return self._sort_by_priority(suggestions)
 
@@ -255,6 +257,82 @@ class SuggestionEngine:
                     category="caution",
                     priority="high",
                     icon="🛡️",
+                )
+            )
+
+        return suggestions
+
+    def _check_game_phase(self, game_data: GameData) -> list:
+        """Check game phase and provide phase-appropriate suggestions."""
+        suggestions = []
+        minutes = game_data.game_time / 60.0
+
+        if minutes < 15.0:
+            # Early game
+            if game_data.active_player.level < 6:
+                suggestions.append(
+                    Suggestion(
+                        text="Early game - focus on CS and avoid risky trades",
+                        category="phase",
+                        priority="low",
+                        icon="🌅",
+                    )
+                )
+        elif minutes < 30.0:
+            # Mid game - group and contest objectives
+            gold_diff = game_data.team_gold_diff
+            if gold_diff > 2000:
+                suggestions.append(
+                    Suggestion(
+                        text="Mid game lead - group for objectives and force fights",
+                        category="phase",
+                        priority="normal",
+                        icon="⚔️",
+                    )
+                )
+            elif gold_diff < -2000:
+                suggestions.append(
+                    Suggestion(
+                        text="Mid game deficit - split push and avoid 5v5",
+                        category="phase",
+                        priority="normal",
+                        icon="🏃",
+                    )
+                )
+        else:
+            # Late game
+            suggestions.append(
+                Suggestion(
+                    text="Late game - stay grouped, one death can lose the game",
+                    category="phase",
+                    priority="high",
+                    icon="🌙",
+                )
+            )
+
+        return suggestions
+
+    def _check_team_advantage(self, game_data: GameData) -> list:
+        """Check overall team advantage and suggest strategy."""
+        suggestions = []
+        gold_diff = game_data.team_gold_diff
+
+        if gold_diff > 3000:
+            suggestions.append(
+                Suggestion(
+                    text=f"Team ahead +{gold_diff:.0f}g - play aggressive, force objectives",
+                    category="strategy",
+                    priority="normal",
+                    icon="🔥",
+                )
+            )
+        elif gold_diff < -3000:
+            suggestions.append(
+                Suggestion(
+                    text=f"Team behind {gold_diff:.0f}g - farm, avoid fights, turtle",
+                    category="strategy",
+                    priority="normal",
+                    icon="🐢",
                 )
             )
 

@@ -18,6 +18,8 @@ from temvision.lol.event_engine import EventEngine, GameEvent
 from temvision.lol.feature_engine import FeatureEngine, GameFeatures
 from temvision.lol.game_detector import GameDetector
 from temvision.lol.models import GameData
+from temvision.lol.objective_tracker import ObjectiveTracker, ObjectiveTimers
+from temvision.lol.post_game import PostGameAnalyzer
 from temvision.lol.suggestion_engine import SuggestionEngine, Suggestion
 from temvision.output.overlay import Overlay, OverlayMessage
 
@@ -36,8 +38,10 @@ class LoLOverlayApp:
     2. Live data collection (Live Client API)
     3. Event detection (enemy missing, power spikes, gank risk)
     4. Feature extraction (gold_diff, hp_ratio, team_strength)
-    5. Suggestion generation (rule-based engine)
-    6. Overlay display (transparent overlay)
+    5. Objective tracking (dragon, baron, herald timers)
+    6. Suggestion generation (rule-based engine)
+    7. Post-game analysis (performance score, MVP)
+    8. Overlay display (transparent overlay)
 
     Uses dual-speed loop for smooth overlay updates:
     - Fast loop (0.25s): HP changes, combat, events
@@ -62,6 +66,8 @@ class LoLOverlayApp:
         self.suggestion_engine = SuggestionEngine()
         self.event_engine = EventEngine()
         self.feature_engine = FeatureEngine()
+        self.objective_tracker = ObjectiveTracker()
+        self.post_game_analyzer = PostGameAnalyzer()
         self.overlay = Overlay(use_gui=use_gui)
 
         # State
@@ -71,6 +77,7 @@ class LoLOverlayApp:
         self._last_features: Optional[GameFeatures] = None
         self._last_events: list = []
         self._last_suggestions: list = []
+        self._last_objective_timers: Optional[ObjectiveTimers] = None
         self._tick_count: int = 0
         self._last_slow_tick: float = 0.0
 
@@ -100,7 +107,9 @@ class LoLOverlayApp:
         self._game_active = False
         self._last_events = []
         self._last_suggestions = []
+        self._last_objective_timers = None
         self.event_engine.reset()
+        self.objective_tracker.reset()
         self.client_api.close()
         logger.info("LoL Overlay stopped")
 
@@ -153,6 +162,7 @@ class LoLOverlayApp:
         """
         self._last_suggestions = self.suggestion_engine.analyze(game_data)
         self._last_features = self.feature_engine.extract(game_data)
+        self._last_objective_timers = self.objective_tracker.process(game_data)
 
     def _on_game_start(self):
         """Handle game start event."""
@@ -160,22 +170,31 @@ class LoLOverlayApp:
         self._tick_count = 0
         self._last_slow_tick = 0.0
         self.event_engine.reset()
+        self.objective_tracker.reset()
         logger.info("Game detected! Starting overlay...")
         self.overlay.show_text("🎮 Game detected! Loading data...", priority="high")
 
     def _on_game_end(self):
         """Handle game end event."""
+        # Run post-game analysis before clearing data
+        if self._last_game_data is not None:
+            post_game = self.post_game_analyzer.analyze(self._last_game_data)
+            if post_game is not None:
+                self._display_post_game(post_game)
+
         self._game_active = False
         self._last_game_data = None
         self._last_features = None
         self._last_events = []
         self._last_suggestions = []
+        self._last_objective_timers = None
         self.event_engine.reset()
+        self.objective_tracker.reset()
         logger.info("Game ended. Waiting for next game...")
         self.overlay.show_text("Game ended. Waiting for next game...")
 
     def _display_overlay(self, game_data: GameData):
-        """Combine events and suggestions into overlay display."""
+        """Combine events, suggestions, team info, and objectives into overlay."""
         lines = []
 
         # Header with game time
@@ -192,6 +211,22 @@ class LoLOverlayApp:
                 f"CS: {p.creep_score} | "
                 f"Lv.{p.level}"
             )
+            # Items summary
+            if p.items:
+                item_names = [i.get("displayName", "") for i in p.items[:6]]
+                item_names = [n for n in item_names if n]
+                if item_names:
+                    lines.append(f"🎒 {', '.join(item_names)}")
+
+        # Team info
+        team_gold = game_data.team_total_gold
+        enemy_gold = game_data.enemy_total_gold
+        team_kills = game_data.team_total_kills
+        enemy_kills = game_data.enemy_total_kills
+        lines.append(
+            f"👥 Team: {team_kills}K {team_gold:.0f}g | "
+            f"Enemy: {enemy_kills}K {enemy_gold:.0f}g"
+        )
 
         # Gold/level diff
         gold_diff = game_data.gold_difference
@@ -208,6 +243,44 @@ class LoLOverlayApp:
             ts = self._last_features.team_strength
             ts_label = "Strong" if ts > 0.2 else "Weak" if ts < -0.2 else "Even"
             lines.append(f"🏆 Team: {ts_label} ({ts:+.2f})")
+
+        # Objective timers
+        if self._last_objective_timers is not None:
+            obj = self._last_objective_timers
+            obj_parts = []
+            if not obj.dragon.alive and obj.dragon.next_spawn_time > 0:
+                remaining = obj.dragon.remaining_time(game_data.game_time)
+                if remaining > 0:
+                    obj_parts.append(f"🐉 {remaining:.0f}s")
+            if not obj.baron.alive and obj.baron.next_spawn_time > 0:
+                remaining = obj.baron.remaining_time(game_data.game_time)
+                if remaining > 0:
+                    obj_parts.append(f"👾 {remaining:.0f}s")
+            if obj.dragon_kills_ally > 0 or obj.dragon_kills_enemy > 0:
+                obj_parts.append(
+                    f"Dragons: {obj.dragon_kills_ally}v{obj.dragon_kills_enemy}"
+                )
+            if obj_parts:
+                lines.append(" | ".join(obj_parts))
+
+        # Enemy info (top 3 threats by level/kills)
+        if game_data.enemies:
+            enemies_sorted = sorted(
+                game_data.enemies,
+                key=lambda e: (e.kills + e.assists, e.level),
+                reverse=True,
+            )
+            enemy_lines = []
+            for e in enemies_sorted[:3]:
+                status = "💀" if e.is_dead else "👁️"
+                enemy_lines.append(
+                    f"{status} {e.champion_name} "
+                    f"{e.kda_string} Lv.{e.level}"
+                )
+            if enemy_lines:
+                lines.append("─" * 30)
+                lines.append("🔴 Enemies:")
+                lines.extend(enemy_lines)
 
         lines.append("─" * 30)
 
@@ -234,6 +307,22 @@ class LoLOverlayApp:
 
         self.overlay.show(OverlayMessage(text=text, priority=priority))
 
+    def _display_post_game(self, post_game):
+        """Display post-game analysis on the overlay."""
+        lines = [
+            "─" * 30,
+            "📊 POST-GAME ANALYSIS",
+            f"🏆 {post_game.player_champion} | "
+            f"KDA: {post_game.kda_string} | "
+            f"CS: {post_game.cs}",
+            f"📈 Performance: {post_game.performance_score:.0f}/100 "
+            f"(Grade: {post_game.grade})",
+            f"{'🥇 MVP!' if post_game.mvp else ''}",
+            "─" * 30,
+        ]
+        text = "\n".join(lines)
+        self.overlay.show(OverlayMessage(text=text, priority="high"))
+
     def process_tick(self, raw_data: dict) -> tuple:
         """Process a single tick with provided data (for testing).
 
@@ -248,9 +337,11 @@ class LoLOverlayApp:
         suggestions = self.suggestion_engine.analyze(game_data)
         events = self.event_engine.process(game_data)
         features = self.feature_engine.extract(game_data)
+        objective_timers = self.objective_tracker.process(game_data)
         self._last_events = events
         self._last_features = features
         self._last_suggestions = suggestions
+        self._last_objective_timers = objective_timers
         return game_data, suggestions
 
     @property
@@ -267,3 +358,8 @@ class LoLOverlayApp:
     def last_events(self) -> list:
         """Return the last detected events."""
         return self._last_events
+
+    @property
+    def last_objective_timers(self) -> Optional[ObjectiveTimers]:
+        """Return the last objective timers."""
+        return self._last_objective_timers

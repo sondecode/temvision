@@ -2,7 +2,7 @@
 
 import pytest
 
-from temvision.lol.models import PlayerData, GameData, PreGameStats
+from temvision.lol.models import PlayerData, GameData, PreGameStats, PostGameStats
 
 
 class TestPlayerData:
@@ -102,6 +102,91 @@ class TestGameData:
     def test_get_enemy_by_position_not_found(self):
         game = GameData(enemies=[PlayerData(position="MID")])
         assert game.get_enemy_by_position("TOP") is None
+
+    def test_team_total_gold(self):
+        game = GameData(
+            active_player=PlayerData(current_gold=5000),
+            allies=[
+                PlayerData(current_gold=4000),
+                PlayerData(current_gold=3000),
+            ],
+        )
+        assert game.team_total_gold == 12000.0
+
+    def test_team_total_gold_no_player(self):
+        game = GameData(
+            allies=[PlayerData(current_gold=4000)],
+        )
+        assert game.team_total_gold == 4000.0
+
+    def test_enemy_total_gold(self):
+        game = GameData(
+            enemies=[
+                PlayerData(current_gold=4000),
+                PlayerData(current_gold=3000),
+            ],
+        )
+        assert game.enemy_total_gold == 7000.0
+
+    def test_team_total_kills(self):
+        game = GameData(
+            active_player=PlayerData(kills=5),
+            allies=[
+                PlayerData(kills=3),
+                PlayerData(kills=2),
+            ],
+        )
+        assert game.team_total_kills == 10
+
+    def test_enemy_total_kills(self):
+        game = GameData(
+            enemies=[
+                PlayerData(kills=4),
+                PlayerData(kills=6),
+            ],
+        )
+        assert game.enemy_total_kills == 10
+
+    def test_team_gold_diff(self):
+        game = GameData(
+            active_player=PlayerData(current_gold=5000),
+            allies=[PlayerData(current_gold=4000)],
+            enemies=[
+                PlayerData(current_gold=3000),
+                PlayerData(current_gold=2000),
+            ],
+        )
+        # team: 9000, enemy: 5000, diff = 4000
+        assert game.team_gold_diff == 4000.0
+
+    def test_team_kill_diff(self):
+        game = GameData(
+            active_player=PlayerData(kills=5),
+            allies=[PlayerData(kills=3)],
+            enemies=[
+                PlayerData(kills=2),
+                PlayerData(kills=4),
+            ],
+        )
+        # team: 8, enemy: 6, diff = 2
+        assert game.team_kill_diff == 2
+
+
+class TestPostGameStats:
+    """Test PostGameStats model."""
+
+    def test_default_values(self):
+        stats = PostGameStats()
+        assert stats.game_duration == 0.0
+        assert stats.kills == 0
+        assert stats.deaths == 0
+        assert stats.assists == 0
+        assert stats.performance_score == 0.0
+        assert stats.mvp is False
+
+    def test_kda_string(self):
+        stats = PostGameStats(kills=5, deaths=2, assists=8)
+        assert stats.kda_string == "5/2/8"
 
 
 class TestPreGameStats:

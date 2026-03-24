@@ -217,3 +217,79 @@ class TestSuggestionEngine:
         suggestions = self.engine.analyze(game_data)
         caution = [s for s in suggestions if s.category == "caution"]
         assert len(caution) >= 1
+
+    def test_early_game_suggestion(self):
+        """Early game should suggest focusing on CS."""
+        game_data = GameData(
+            game_time=300.0,  # 5 min
+            active_player=PlayerData(
+                hp=1000, max_hp=1000, level=3, current_gold=2000,
+                creep_score=30,
+            ),
+            enemies=[PlayerData(level=3, current_gold=2000, creep_score=30)],
+        )
+        suggestions = self.engine.analyze(game_data)
+        phase = [s for s in suggestions if s.category == "phase"]
+        assert len(phase) >= 1
+        assert "early" in phase[0].text.lower()
+
+    def test_late_game_suggestion(self):
+        """Late game should suggest staying grouped."""
+        game_data = GameData(
+            game_time=2100.0,  # 35 min
+            active_player=PlayerData(
+                hp=2000, max_hp=2000, level=18, current_gold=20000,
+                creep_score=300,
+            ),
+            enemies=[PlayerData(level=18, current_gold=20000, creep_score=300)],
+        )
+        suggestions = self.engine.analyze(game_data)
+        phase = [s for s in suggestions if s.category == "phase"]
+        assert len(phase) >= 1
+        assert "late" in phase[0].text.lower()
+
+    def test_team_ahead_strategy(self):
+        """Team with large gold lead should get aggressive suggestion."""
+        game_data = GameData(
+            game_time=1200.0,
+            active_player=PlayerData(
+                hp=1000, max_hp=1000, level=12, current_gold=10000,
+                creep_score=200,
+            ),
+            allies=[
+                PlayerData(current_gold=8000, kills=5),
+                PlayerData(current_gold=7000, kills=3),
+            ],
+            enemies=[
+                PlayerData(level=10, current_gold=5000, creep_score=150),
+                PlayerData(level=10, current_gold=4000, creep_score=130),
+                PlayerData(level=10, current_gold=4000, creep_score=120),
+            ],
+        )
+        suggestions = self.engine.analyze(game_data)
+        strategy = [s for s in suggestions if s.category == "strategy"]
+        assert len(strategy) >= 1
+        assert "ahead" in strategy[0].text.lower()
+
+    def test_team_behind_strategy(self):
+        """Team with large gold deficit should get defensive suggestion."""
+        game_data = GameData(
+            game_time=1200.0,
+            active_player=PlayerData(
+                hp=1000, max_hp=1000, level=8, current_gold=4000,
+                creep_score=100,
+            ),
+            allies=[
+                PlayerData(current_gold=3000, kills=1),
+                PlayerData(current_gold=3000, kills=0),
+            ],
+            enemies=[
+                PlayerData(level=12, current_gold=10000, creep_score=250),
+                PlayerData(level=11, current_gold=9000, creep_score=200),
+                PlayerData(level=11, current_gold=8000, creep_score=180),
+            ],
+        )
+        suggestions = self.engine.analyze(game_data)
+        strategy = [s for s in suggestions if s.category == "strategy"]
+        assert len(strategy) >= 1
+        assert "behind" in strategy[0].text.lower()
