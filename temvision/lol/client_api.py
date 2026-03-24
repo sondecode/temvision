@@ -9,15 +9,14 @@ Reference: https://developer.riotgames.com/docs/lol#game-client-api
 import logging
 from typing import Optional
 
+import warnings
+
 import requests
 import urllib3
 
 from temvision.lol.models import PlayerData, GameData
 
 logger = logging.getLogger(__name__)
-
-# Suppress SSL warnings for the self-signed cert used by the League client
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BASE_URL = "https://127.0.0.1:2999"
 
@@ -38,7 +37,15 @@ class LiveClientAPI:
         self.base_url = base_url
         self.timeout = timeout
         self._session = requests.Session()
+        # The League Client uses a self-signed certificate on localhost,
+        # so SSL verification must be disabled for this specific session.
         self._session.verify = False
+        # Suppress InsecureRequestWarning only for this session's adapter
+        warnings.filterwarnings(
+            "ignore",
+            message="Unverified HTTPS request",
+            category=urllib3.exceptions.InsecureRequestWarning,
+        )
 
     def is_game_running(self) -> bool:
         """Check if a League game is currently active by pinging the API."""

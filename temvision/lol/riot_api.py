@@ -66,6 +66,8 @@ class RiotAPI:
         region: str = "na",
         timeout: float = 5.0,
     ):
+        # Falls back to RIOT_API_KEY env var. An empty string means
+        # no key is configured; all API calls will return None gracefully.
         self.api_key = api_key or os.environ.get("RIOT_API_KEY", "")
         self.region = region
         self.platform = REGIONS.get(region, "na1")
