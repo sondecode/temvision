@@ -2,7 +2,11 @@
 
 import pytest
 
-from temvision.lol.overlay_app import LoLOverlayApp
+from temvision.lol.overlay_app import (
+    LoLOverlayApp,
+    DEFAULT_FAST_INTERVAL,
+    DEFAULT_SLOW_INTERVAL,
+)
 from temvision.lol.models import GameData
 
 
@@ -119,3 +123,64 @@ class TestLoLOverlayApp:
         game_data, suggestions = app.process_tick({})
         assert game_data.active_player is None
         assert suggestions == []
+
+
+class TestLoLOverlayAppDualSpeed:
+    """Test dual-speed loop functionality."""
+
+    def test_default_intervals(self):
+        app = LoLOverlayApp()
+        assert app.fast_interval == DEFAULT_FAST_INTERVAL
+        assert app.slow_interval == DEFAULT_SLOW_INTERVAL
+
+    def test_custom_intervals(self):
+        app = LoLOverlayApp(fast_interval=0.1, slow_interval=2.0)
+        assert app.fast_interval == 0.1
+        assert app.slow_interval == 2.0
+
+    def test_default_fast_interval_value(self):
+        assert DEFAULT_FAST_INTERVAL == 0.25
+
+    def test_default_slow_interval_value(self):
+        assert DEFAULT_SLOW_INTERVAL == 1.0
+
+    def test_has_event_engine(self):
+        app = LoLOverlayApp()
+        assert app.event_engine is not None
+
+    def test_has_feature_engine(self):
+        app = LoLOverlayApp()
+        assert app.feature_engine is not None
+
+    def test_process_tick_populates_features(self):
+        app = LoLOverlayApp()
+        app.process_tick(SAMPLE_RAW_DATA)
+
+        assert app.last_features is not None
+        assert app.last_features.game_phase == "early"  # 720s = 12 min < 15 min
+        assert app.last_features.level_diff > 0  # Player level 10 vs enemy 8
+
+    def test_process_tick_populates_events(self):
+        app = LoLOverlayApp()
+        app.process_tick(SAMPLE_RAW_DATA)
+
+        # Events list should exist (may be empty on first tick)
+        assert isinstance(app.last_events, list)
+
+    def test_stop_resets_events_and_features(self):
+        app = LoLOverlayApp()
+        app.process_tick(SAMPLE_RAW_DATA)
+        app._running = True
+        app._game_active = True
+        app.stop()
+
+        assert app._last_events == []
+        assert app._last_suggestions == []
+
+    def test_process_tick_returns_suggestions(self):
+        app = LoLOverlayApp()
+        game_data, suggestions = app.process_tick(SAMPLE_RAW_DATA)
+
+        # With level advantage (10 vs 8), we expect suggestions
+        assert len(suggestions) > 0
+        assert app._last_suggestions == suggestions

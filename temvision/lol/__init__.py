@@ -5,6 +5,8 @@ from temvision.lol.client_api import LiveClientAPI
 from temvision.lol.riot_api import RiotAPI
 from temvision.lol.game_detector import GameDetector
 from temvision.lol.suggestion_engine import SuggestionEngine
+from temvision.lol.event_engine import EventEngine
+from temvision.lol.feature_engine import FeatureEngine
 
 __all__ = [
     "PlayerData",
@@ -14,4 +16,6 @@ __all__ = [
     "RiotAPI",
     "GameDetector",
     "SuggestionEngine",
+    "EventEngine",
+    "FeatureEngine",
 ]
