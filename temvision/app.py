@@ -13,6 +13,7 @@ from temvision.game.adapter import GameAdapter, adapter_registry
 from temvision.game.state import GameState
 from temvision.lol.game_detector import GamePhase
 from temvision.lol.pre_game import PreGameAnalyzer
+from temvision.lol.build_recommender import BuildRecommender, RuneImporter
 from temvision.output.overlay import Overlay
 from temvision.skills.loader import SkillLoader
 from temvision.vision.engine import VisionEngine
@@ -62,6 +63,11 @@ class TemvisionApp:
 
         if game == "lol":
             self._pre_game = PreGameAnalyzer()
+            self._build_rec = BuildRecommender()
+            self._rune_importer = RuneImporter()
+        else:
+            self._build_rec = None
+            self._rune_importer = None
 
         # Load skills
         self._skill_loader = SkillLoader(skills_dir)
@@ -223,3 +229,15 @@ class TemvisionApp:
 
         for line in lines:
             self._overlay.show_text(line, priority="normal")
+
+        # Show build recommendation for ally champion picks
+        if self._build_rec is not None and info.allies:
+            for ally in info.allies:
+                if ally.champion_name:
+                    rec = self._build_rec.recommend(
+                        ally.champion_name, ally.position
+                    )
+                    if rec:
+                        build_lines = self._build_rec.overlay_lines(rec)
+                        for bl in build_lines:
+                            self._overlay.show_text(bl, priority="normal")

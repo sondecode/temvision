@@ -14,18 +14,23 @@ import time
 from typing import Optional
 
 from temvision.lol.build_recommender import BuildRecommender
+from temvision.lol.champion_config import ChampionConfig
 from temvision.lol.client_api import LiveClientAPI
 from temvision.lol.event_engine import EventEngine, GameEvent
 from temvision.lol.feature_engine import FeatureEngine, GameFeatures
 from temvision.lol.game_detector import GameDetector
 from temvision.lol.hud_ocr import HUDParser, HUDData
+from temvision.lol.item_tracker import ItemTracker
 from temvision.lol.match_history import MatchHistory
+from temvision.lol.minimap_detector import MinimapDetector, MinimapSnapshot
 from temvision.lol.models import GameData
 from temvision.lol.objective_tracker import ObjectiveTracker, ObjectiveTimers
 from temvision.lol.post_game import PostGameAnalyzer
+from temvision.lol.report import ReportGenerator
 from temvision.lol.spell_tracker import SpellTracker
 from temvision.lol.suggestion_engine import SuggestionEngine, Suggestion
 from temvision.lol.threat_scorer import ThreatScorer
+from temvision.capture.screen import ScreenCapture
 from temvision.output.overlay import Overlay, OverlayMessage
 
 logger = logging.getLogger(__name__)
@@ -78,17 +83,26 @@ class LoLOverlayApp:
         self.hud_parser = HUDParser()
         self.match_history = MatchHistory()
         self.build_recommender = BuildRecommender()
+        self.report_generator = ReportGenerator(match_history=self.match_history)
+        self.item_tracker = ItemTracker()
+        self.minimap_detector = MinimapDetector()
+        self.screen_capture = ScreenCapture()
+        self.champion_config = ChampionConfig()
         self.overlay = Overlay(use_gui=use_gui)
 
         # State
         self._running = False
         self._game_active = False
+        self._api_healthy = True
+        self._api_fail_count = 0
         self._last_game_data: Optional[GameData] = None
         self._last_features: Optional[GameFeatures] = None
         self._last_events: list = []
         self._last_suggestions: list = []
         self._last_objective_timers: Optional[ObjectiveTimers] = None
         self._last_threats: list = []
+        self._last_minimap: Optional[MinimapSnapshot] = None
+        self._last_hud: Optional[HUDData] = None
         self._tick_count: int = 0
         self._last_slow_tick: float = 0.0
 
@@ -100,6 +114,7 @@ class LoLOverlayApp:
         """
         self._running = True
         self._last_slow_tick = 0.0
+        self.screen_capture.start()
         logger.info("LoL Overlay started. Waiting for game...")
         self.overlay.show_text("LoL Overlay started. Waiting for game...")
 
@@ -122,6 +137,7 @@ class LoLOverlayApp:
         self.event_engine.reset()
         self.objective_tracker.reset()
         self.client_api.close()
+        self.screen_capture.stop()
         logger.info("LoL Overlay stopped")
 
     def _tick(self):
@@ -142,8 +158,20 @@ class LoLOverlayApp:
 
         if self._game_active:
             raw_data = self.client_api.get_all_game_data()
+
+            # --- API watchdog: degrade to OCR if API fails ---
             if raw_data is None:
+                self._api_fail_count += 1
+                if self._api_fail_count >= 3:
+                    self._api_healthy = False
+                    logger.debug("API unhealthy – falling back to OCR")
+                self._run_ocr_fallback()
                 return
+            else:
+                if not self._api_healthy:
+                    logger.info("API recovered")
+                self._api_healthy = True
+                self._api_fail_count = 0
 
             game_data = self.client_api.parse_game_data(raw_data)
             self._last_game_data = game_data
@@ -151,6 +179,10 @@ class LoLOverlayApp:
             # Register spells on first data tick
             if self._tick_count == 1:
                 self._init_spell_tracker(game_data)
+                # Load per-champion config & tips
+                if game_data.active_player:
+                    champ = game_data.active_player.champion_name
+                    self._champion_tips = self.champion_config.get_tips(champ)
 
             # Fast update: events (HP changes, combat, enemy missing)
             self._fast_update(game_data)
@@ -196,14 +228,35 @@ class LoLOverlayApp:
             game_data, game_data.game_time
         )
 
+        # Refresh item actives for all players
+        for player in game_data.all_players:
+            self.item_tracker.refresh_items(
+                player.champion_name, player.items or []
+            )
+        self.item_tracker.update(game_data.game_time)
+
+        # Minimap detection (screen capture)
+        try:
+            frame = self.screen_capture.capture_full()
+            if frame is not None:
+                self._last_minimap = self.minimap_detector.detect(
+                    frame, game_data.game_time
+                )
+        except Exception as exc:
+            logger.debug("Minimap capture failed: %s", exc)
+
     def _on_game_start(self):
         """Handle game start event."""
         self._game_active = True
         self._tick_count = 0
         self._last_slow_tick = 0.0
+        self._api_healthy = True
+        self._api_fail_count = 0
         self.event_engine.reset()
         self.objective_tracker.reset()
         self.spell_tracker.reset()
+        self.item_tracker.reset()
+        self._champion_tips: list[str] = []
         logger.info("Game detected! Starting overlay...")
         self.overlay.show_text("🎮 Game detected! Loading data...", priority="high")
 
@@ -215,6 +268,12 @@ class LoLOverlayApp:
             if post_game is not None:
                 self._display_post_game(post_game)
                 self.match_history.save(post_game)
+                # Generate improvement report
+                report = self.report_generator.generate(post_game)
+                report_lines = report.overlay_lines()
+                self.overlay.show(OverlayMessage(
+                    text="\n".join(report_lines), priority="normal"
+                ))
 
         self._game_active = False
         self._last_game_data = None
@@ -223,132 +282,202 @@ class LoLOverlayApp:
         self._last_suggestions = []
         self._last_objective_timers = None
         self._last_threats = []
+        self._last_minimap = None
+        self._last_hud = None
         self.event_engine.reset()
         self.objective_tracker.reset()
         self.spell_tracker.reset()
+        self.item_tracker.reset()
         logger.info("Game ended. Waiting for next game...")
         self.overlay.show_text("Game ended. Waiting for next game...")
 
-    def _display_overlay(self, game_data: GameData):
-        """Combine events, suggestions, team info, and objectives into overlay."""
-        lines = []
+    def _run_ocr_fallback(self) -> None:
+        """Degrade to OCR-only when Live Client API is unavailable.
 
-        # Header with game time
+        Captures full screen and uses HUDParser to read gold/CS/KDA.
+        """
+        try:
+            frame = self.screen_capture.capture_full()
+            if frame is None:
+                return
+        except Exception as exc:
+            logger.debug("OCR fallback capture failed: %s", exc)
+            return
+
+        hud = self.hud_parser.parse(frame)
+        self._last_hud = hud
+
+        lines: list[str] = ["⏱️ OCR Mode (API unavailable)"]
+        if hud.gold is not None:
+            lines.append(f"💰 Gold: {hud.gold}")
+        if hud.cs is not None:
+            lines.append(f"🗡️  CS: {hud.cs}")
+        if hud.kills is not None and hud.deaths is not None and hud.assists is not None:
+            lines.append(f"📊 KDA: {hud.kills}/{hud.deaths}/{hud.assists}")
+        if hud.level is not None:
+            lines.append(f"⬆️  Level: {hud.level}")
+        if hud.game_time_str:
+            lines.append(f"⏱️ {hud.game_time_str}")
+
+        # Minimap detection still works in OCR mode
+        minimap = self.minimap_detector.detect(frame)
+        if minimap.detections:
+            lines.append("🗺️  Minimap:")
+            lines.extend(minimap.overlay_lines())
+
+        if len(lines) > 1:
+            self.overlay.show(OverlayMessage(
+                text="\n".join(lines), priority="normal"
+            ))
+
+    def _display_overlay(self, game_data: GameData):
+        """Combine all data into a structured lane-panel overlay.
+
+        Layout:
+          ┌ HEADER: time, player stats, team summary ┐
+          ├ OBJECTIVES: dragon/baron timers            │
+          ├ LANE PANELS: per-lane ally vs enemy        │
+          ├ THREATS & CDs: spell/item cooldowns        │
+          ├ MINIMAP: detected positions                │
+          ├ EVENTS (urgent): from fast loop            │
+          └ SUGGESTIONS: from slow loop               ┘
+        """
+        lines: list[str] = []
+
+        # ── HEADER ──────────────────────────────────────
         minutes = int(game_data.game_time // 60)
         seconds = int(game_data.game_time % 60)
-        lines.append(f"⏱️ {minutes:02d}:{seconds:02d}")
 
-        # Player stats summary
         if game_data.active_player:
             p = game_data.active_player
             lines.append(
-                f"📊 {p.champion_name} | "
-                f"KDA: {p.kda_string} | "
-                f"CS: {p.creep_score} | "
+                f"⏱️ {minutes:02d}:{seconds:02d}  "
+                f"📊 {p.champion_name}  "
+                f"KDA {p.kda_string}  "
+                f"CS {p.creep_score}  "
                 f"Lv.{p.level}"
             )
-            # Items summary
-            if p.items:
-                item_names = [i.get("displayName", "") for i in p.items[:6]]
-                item_names = [n for n in item_names if n]
-                if item_names:
-                    lines.append(f"🎒 {', '.join(item_names)}")
+        else:
+            lines.append(f"⏱️ {minutes:02d}:{seconds:02d}")
 
-        # Team info
-        team_gold = game_data.team_total_gold
-        enemy_gold = game_data.enemy_total_gold
-        team_kills = game_data.team_total_kills
-        enemy_kills = game_data.enemy_total_kills
+        # Team gold/kills
+        tdiff = game_data.team_gold_diff
+        diff_icon = "🔺" if tdiff > 0 else "🔻" if tdiff < 0 else "⚖️"
         lines.append(
-            f"👥 Team: {team_kills}K {team_gold:.0f}g | "
-            f"Enemy: {enemy_kills}K {enemy_gold:.0f}g"
+            f"{diff_icon} Team {game_data.team_total_kills}K "
+            f"{game_data.team_total_gold:.0f}g  vs  "
+            f"Enemy {game_data.enemy_total_kills}K "
+            f"{game_data.enemy_total_gold:.0f}g"
         )
 
-        # Gold/level diff
-        gold_diff = game_data.gold_difference
-        level_diff = game_data.level_difference
-        if gold_diff != 0 or level_diff != 0:
-            diff_sign = "+" if gold_diff >= 0 else ""
-            lines.append(
-                f"💎 Gold: {diff_sign}{gold_diff:.0f} | "
-                f"Level: {diff_sign}{level_diff:.0f}"
-            )
-
-        # Team strength (from feature engine)
+        # Team strength
         if self._last_features is not None:
             ts = self._last_features.team_strength
             ts_label = "Strong" if ts > 0.2 else "Weak" if ts < -0.2 else "Even"
-            lines.append(f"🏆 Team: {ts_label} ({ts:+.2f})")
+            lines[-1] += f"  ({ts_label})"
 
-        # Objective timers
+        # ── OBJECTIVES ──────────────────────────────────
         if self._last_objective_timers is not None:
             obj = self._last_objective_timers
-            obj_parts = []
+            obj_parts: list[str] = []
             if not obj.dragon.alive and obj.dragon.next_spawn_time > 0:
-                remaining = obj.dragon.remaining_time(game_data.game_time)
-                if remaining > 0:
-                    obj_parts.append(f"🐉 {remaining:.0f}s")
+                rem = obj.dragon.remaining_time(game_data.game_time)
+                if rem > 0:
+                    obj_parts.append(f"🐉 {rem:.0f}s")
             if not obj.baron.alive and obj.baron.next_spawn_time > 0:
-                remaining = obj.baron.remaining_time(game_data.game_time)
-                if remaining > 0:
-                    obj_parts.append(f"👾 {remaining:.0f}s")
+                rem = obj.baron.remaining_time(game_data.game_time)
+                if rem > 0:
+                    obj_parts.append(f"👾 {rem:.0f}s")
             if obj.dragon_kills_ally > 0 or obj.dragon_kills_enemy > 0:
                 obj_parts.append(
-                    f"Dragons: {obj.dragon_kills_ally}v{obj.dragon_kills_enemy}"
+                    f"Drk {obj.dragon_kills_ally}v{obj.dragon_kills_enemy}"
                 )
             if obj_parts:
                 lines.append(" | ".join(obj_parts))
 
-        # Threat scores
-        if self._last_threats:
-            lines.append("⚠️ Threats:")
-            for t in self._last_threats[:3]:
-                lines.append(t.overlay_line())
+        # ── LANE PANELS ─────────────────────────────────
+        # Build a lane map: position → (ally, enemy)
+        lane_map: dict[str, dict[str, list]] = {}
+        if game_data.active_player:
+            pos = game_data.active_player.position or "?"
+            lane_map.setdefault(pos, {"ally": [], "enemy": []})
+            lane_map[pos]["ally"].append(game_data.active_player)
+        for a in game_data.allies:
+            pos = a.position or "?"
+            lane_map.setdefault(pos, {"ally": [], "enemy": []})
+            lane_map[pos]["ally"].append(a)
+        for e in game_data.enemies:
+            pos = e.position or "?"
+            lane_map.setdefault(pos, {"ally": [], "enemy": []})
+            lane_map[pos]["enemy"].append(e)
 
-        # Enemy spell cooldowns
+        if lane_map:
+            lines.append("─── Lane Panels ───")
+            for lane, sides in sorted(lane_map.items()):
+                parts: list[str] = []
+                for a in sides["ally"]:
+                    parts.append(
+                        f"🟢{a.champion_name} {a.kda_string}"
+                    )
+                for e in sides["enemy"]:
+                    status = "💀" if e.is_dead else "🔴"
+                    parts.append(
+                        f"{status}{e.champion_name} {e.kda_string}"
+                    )
+                lines.append(f"  {lane.upper()}: {' vs '.join(parts)}")
+
+        # ── THREATS ─────────────────────────────────────
+        if self._last_threats:
+            top_threats = [
+                t for t in self._last_threats[:3]
+                if t.label in ("High", "Extreme")
+            ]
+            if top_threats:
+                lines.append("⚠️ " + " | ".join(
+                    t.overlay_line() for t in top_threats
+                ))
+
+        # ── SPELL & ITEM CDs ───────────────────────────
         enemy_champs = [e.champion_name for e in game_data.enemies]
         spell_lines = self.spell_tracker.get_enemy_lines(
             enemy_champs, game_data.game_time
         )
-        if spell_lines:
-            lines.append("🔮 Spell CDs:")
-            lines.extend(spell_lines)
+        # Only show spells on cooldown (compact)
+        cd_entries: list[str] = []
+        for sl in spell_lines:
+            if "⏳" in sl:
+                cd_entries.append(sl)
+        item_lines = self.item_tracker.get_enemy_lines(
+            enemy_champs, game_data.game_time
+        )
+        cd_entries.extend(item_lines)
+        if cd_entries:
+            lines.append("🔮 CDs: " + " | ".join(cd_entries[:5]))
 
-        # Enemy info (top 3 threats by level/kills)
-        if game_data.enemies:
-            enemies_sorted = sorted(
-                game_data.enemies,
-                key=lambda e: (e.kills + e.assists, e.level),
-                reverse=True,
-            )
-            enemy_lines = []
-            for e in enemies_sorted[:3]:
-                status = "💀" if e.is_dead else "👁️"
-                enemy_lines.append(
-                    f"{status} {e.champion_name} "
-                    f"{e.kda_string} Lv.{e.level}"
-                )
-            if enemy_lines:
-                lines.append("─" * 30)
-                lines.append("🔴 Enemies:")
-                lines.extend(enemy_lines)
+        # ── MINIMAP ─────────────────────────────────────
+        if self._last_minimap and self._last_minimap.detections:
+            lines.append("🗺️  " + " ".join(
+                f"{d.champion_name}@{d.quadrant}"
+                for d in self._last_minimap.detections[:5]
+            ))
 
-        lines.append("─" * 30)
+        # ── EVENTS (urgent) ─────────────────────────────
+        for ev in self._last_events[:3]:
+            lines.append(ev.display_text)
 
-        # Events (from fast loop - shown first as they are urgent)
-        for e in self._last_events[:3]:
-            lines.append(e.display_text)
-
-        # Suggestions (from slow loop)
-        for s in self._last_suggestions[:5]:
+        # ── SUGGESTIONS ─────────────────────────────────
+        for s in self._last_suggestions[:3]:
             lines.append(s.display_text)
+
+        # ── CHAMPION TIPS ───────────────────────────────
+        if self._champion_tips:
+            lines.append(f"💡 {self._champion_tips[0]}")
 
         if not self._last_events and not self._last_suggestions:
             return
 
         text = "\n".join(lines)
 
-        # Priority: events take precedence
         if self._last_events:
             priority = self._last_events[0].priority
         elif self._last_suggestions:
