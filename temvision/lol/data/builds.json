@@ -1,0 +1,206 @@
+{
+    "aatrox": {
+        "default": {
+            "runes": {
+                "name": "Temvision - Aatrox",
+                "primary_style": 8000,
+                "sub_style": 8400,
+                "selected_perks": [
+                    8010,
+                    9111,
+                    9104,
+                    8299
+                ],
+                "stat_shards": [
+                    5008,
+                    5008,
+                    5001
+                ]
+            },
+            "starting_items": [
+                "Doran's Blade",
+                "Health Potion"
+            ],
+            "core_items": [
+                "Eclipse",
+                "Black Cleaver",
+                "Sterak's Gage"
+            ],
+            "summoner_spells": [
+                "Flash",
+                "Teleport"
+            ],
+            "skill_order": "Q > E > W",
+            "win_rate": 51.2
+        },
+        "top": {
+            "runes": {
+                "name": "Temvision - Aatrox TOP",
+                "primary_style": 8000,
+                "sub_style": 8400,
+                "selected_perks": [
+                    8010,
+                    9111,
+                    9104,
+                    8299
+                ],
+                "stat_shards": [
+                    5008,
+                    5008,
+                    5001
+                ]
+            },
+            "starting_items": [
+                "Doran's Blade",
+                "Health Potion"
+            ],
+            "core_items": [
+                "Eclipse",
+                "Black Cleaver",
+                "Sterak's Gage"
+            ],
+            "summoner_spells": [
+                "Flash",
+                "Teleport"
+            ],
+            "skill_order": "Q > E > W",
+            "win_rate": 51.2
+        }
+    },
+    "yasuo": {
+        "default": {
+            "runes": {
+                "name": "Temvision - Yasuo",
+                "primary_style": 8000,
+                "sub_style": 8200,
+                "selected_perks": [
+                    8008,
+                    9111,
+                    9104,
+                    8299
+                ],
+                "stat_shards": [
+                    5005,
+                    5008,
+                    5002
+                ]
+            },
+            "starting_items": [
+                "Doran's Blade",
+                "Health Potion"
+            ],
+            "core_items": [
+                "Kraken Slayer",
+                "Immortal Shieldbow",
+                "Infinity Edge"
+            ],
+            "summoner_spells": [
+                "Flash",
+                "Ignite"
+            ],
+            "skill_order": "Q > E > W",
+            "win_rate": 49.5
+        },
+        "mid": {
+            "runes": {
+                "name": "Temvision - Yasuo MID",
+                "primary_style": 8000,
+                "sub_style": 8200,
+                "selected_perks": [
+                    8008,
+                    9111,
+                    9104,
+                    8299
+                ],
+                "stat_shards": [
+                    5005,
+                    5008,
+                    5002
+                ]
+            },
+            "starting_items": [
+                "Doran's Blade",
+                "Health Potion"
+            ],
+            "core_items": [
+                "Kraken Slayer",
+                "Immortal Shieldbow",
+                "Infinity Edge"
+            ],
+            "summoner_spells": [
+                "Flash",
+                "Ignite"
+            ],
+            "skill_order": "Q > E > W",
+            "win_rate": 49.5
+        }
+    },
+    "leesin": {
+        "default": {
+            "runes": {
+                "name": "Temvision - Lee Sin",
+                "primary_style": 8000,
+                "sub_style": 8100,
+                "selected_perks": [
+                    8010,
+                    9111,
+                    9104,
+                    8299
+                ],
+                "stat_shards": [
+                    5005,
+                    5008,
+                    5002
+                ]
+            },
+            "starting_items": [
+                "Mosstomper Seedling",
+                "Health Potion"
+            ],
+            "core_items": [
+                "Eclipse",
+                "Black Cleaver",
+                "Death's Dance"
+            ],
+            "summoner_spells": [
+                "Flash",
+                "Smite"
+            ],
+            "skill_order": "Q > W > E",
+            "win_rate": 48.3
+        },
+        "jungle": {
+            "runes": {
+                "name": "Temvision - Lee Sin JG",
+                "primary_style": 8000,
+                "sub_style": 8100,
+                "selected_perks": [
+                    8010,
+                    9111,
+                    9104,
+                    8299
+                ],
+                "stat_shards": [
+                    5005,
+                    5008,
+                    5002
+                ]
+            },
+            "starting_items": [
+                "Mosstomper Seedling",
+                "Health Potion"
+            ],
+            "core_items": [
+                "Eclipse",
+                "Black Cleaver",
+                "Death's Dance"
+            ],
+            "summoner_spells": [
+                "Flash",
+                "Smite"
+            ],
+            "skill_order": "Q > W > E",
+            "win_rate": 48.3
+        }
+    }
+}

@@ -12,6 +12,7 @@ from temvision.decision.engine import Decision, DecisionEngine
 from temvision.game.adapter import GameAdapter, adapter_registry
 from temvision.game.state import GameState
 from temvision.lol.game_detector import GamePhase
+from temvision.lol.pre_game import PreGameAnalyzer
 from temvision.output.overlay import Overlay
 from temvision.skills.loader import SkillLoader
 from temvision.vision.engine import VisionEngine
@@ -50,11 +51,17 @@ class TemvisionApp:
         self._vision = VisionEngine()
         alert_cooldown = float(self._config.get("alert_cooldown", 30.0))
         self._overlay = Overlay(use_gui=use_gui, cooldown=alert_cooldown)
+        self._pre_game: PreGameAnalyzer | None = None
+        self._pre_game_last_fetch: float = 0.0
+        self._pre_game_fetch_interval: float = 5.0
 
         # Load game adapter
         self._adapter: GameAdapter | None = adapter_registry.get(game)
         if self._adapter is None:
             raise ValueError(f"No adapter found for game: {game}")
+
+        if game == "lol":
+            self._pre_game = PreGameAnalyzer()
 
         # Load skills
         self._skill_loader = SkillLoader(skills_dir)
@@ -122,10 +129,13 @@ class TemvisionApp:
                 )
                 return
             if phase == GamePhase.CLIENT_OPEN:
-                self._overlay.show_text(
-                    "🔵 League client detected – waiting for a match to begin...",
-                    priority="normal",
-                )
+                if self._pre_game is not None:
+                    self._maybe_show_pre_game()
+                else:
+                    self._overlay.show_text(
+                        "🔵 League client detected – waiting for a match to begin...",
+                        priority="normal",
+                    )
                 return
             # GamePhase.IN_GAME → fall through to the full pipeline
         # -------------------------------------------------------------------
@@ -183,3 +193,33 @@ class TemvisionApp:
         return self._decision_engine.decide(
             state.to_dict(), rules, use_llm=self._use_llm
         )
+
+    # ------------------------------------------------------------------
+    # Pre-game (champ select) overlay for LoL
+    def _maybe_show_pre_game(self) -> None:
+        now = time.monotonic()
+        if now - self._pre_game_last_fetch < self._pre_game_fetch_interval:
+            return
+        self._pre_game_last_fetch = now
+
+        if self._pre_game is None:
+            return
+
+        info = self._pre_game.fetch()
+        if info is None:
+            self._overlay.show_text(
+                "🔵 League client detected – waiting for a match to begin...",
+                priority="normal",
+            )
+            return
+
+        lines = info.overlay_lines()
+        if not lines:
+            self._overlay.show_text(
+                "🔵 Champ select detected – loading data...",
+                priority="normal",
+            )
+            return
+
+        for line in lines:
+            self._overlay.show_text(line, priority="normal")

@@ -13,14 +13,19 @@ import logging
 import time
 from typing import Optional
 
+from temvision.lol.build_recommender import BuildRecommender
 from temvision.lol.client_api import LiveClientAPI
 from temvision.lol.event_engine import EventEngine, GameEvent
 from temvision.lol.feature_engine import FeatureEngine, GameFeatures
 from temvision.lol.game_detector import GameDetector
+from temvision.lol.hud_ocr import HUDParser, HUDData
+from temvision.lol.match_history import MatchHistory
 from temvision.lol.models import GameData
 from temvision.lol.objective_tracker import ObjectiveTracker, ObjectiveTimers
 from temvision.lol.post_game import PostGameAnalyzer
+from temvision.lol.spell_tracker import SpellTracker
 from temvision.lol.suggestion_engine import SuggestionEngine, Suggestion
+from temvision.lol.threat_scorer import ThreatScorer
 from temvision.output.overlay import Overlay, OverlayMessage
 
 logger = logging.getLogger(__name__)
@@ -68,6 +73,11 @@ class LoLOverlayApp:
         self.feature_engine = FeatureEngine()
         self.objective_tracker = ObjectiveTracker()
         self.post_game_analyzer = PostGameAnalyzer()
+        self.spell_tracker = SpellTracker()
+        self.threat_scorer = ThreatScorer(spell_tracker=self.spell_tracker)
+        self.hud_parser = HUDParser()
+        self.match_history = MatchHistory()
+        self.build_recommender = BuildRecommender()
         self.overlay = Overlay(use_gui=use_gui)
 
         # State
@@ -78,6 +88,7 @@ class LoLOverlayApp:
         self._last_events: list = []
         self._last_suggestions: list = []
         self._last_objective_timers: Optional[ObjectiveTimers] = None
+        self._last_threats: list = []
         self._tick_count: int = 0
         self._last_slow_tick: float = 0.0
 
@@ -137,6 +148,10 @@ class LoLOverlayApp:
             game_data = self.client_api.parse_game_data(raw_data)
             self._last_game_data = game_data
 
+            # Register spells on first data tick
+            if self._tick_count == 1:
+                self._init_spell_tracker(game_data)
+
             # Fast update: events (HP changes, combat, enemy missing)
             self._fast_update(game_data)
 
@@ -148,12 +163,26 @@ class LoLOverlayApp:
             # Display combined results
             self._display_overlay(game_data)
 
+    def _init_spell_tracker(self, game_data: GameData) -> None:
+        """Register all players' summoner spells on first tick."""
+        for player in game_data.all_players:
+            spells = player.summoner_spells or []
+            s1 = spells[0] if len(spells) > 0 else ""
+            s2 = spells[1] if len(spells) > 1 else ""
+            self.spell_tracker.register_player(
+                champion_name=player.champion_name,
+                summoner_name=player.summoner_name,
+                spell1_name=s1,
+                spell2_name=s2,
+            )
+
     def _fast_update(self, game_data: GameData):
-        """Fast loop update: events and combat detection.
+        """Fast loop update: events, combat detection, spell tracker.
 
         Runs every fast_interval (default 0.25s).
         """
         self._last_events = self.event_engine.process(game_data)
+        self.spell_tracker.update(game_data.game_time)
 
     def _slow_update(self, game_data: GameData):
         """Slow loop update: full analysis.
@@ -163,6 +192,9 @@ class LoLOverlayApp:
         self._last_suggestions = self.suggestion_engine.analyze(game_data)
         self._last_features = self.feature_engine.extract(game_data)
         self._last_objective_timers = self.objective_tracker.process(game_data)
+        self._last_threats = self.threat_scorer.score_all(
+            game_data, game_data.game_time
+        )
 
     def _on_game_start(self):
         """Handle game start event."""
@@ -171,6 +203,7 @@ class LoLOverlayApp:
         self._last_slow_tick = 0.0
         self.event_engine.reset()
         self.objective_tracker.reset()
+        self.spell_tracker.reset()
         logger.info("Game detected! Starting overlay...")
         self.overlay.show_text("🎮 Game detected! Loading data...", priority="high")
 
@@ -181,6 +214,7 @@ class LoLOverlayApp:
             post_game = self.post_game_analyzer.analyze(self._last_game_data)
             if post_game is not None:
                 self._display_post_game(post_game)
+                self.match_history.save(post_game)
 
         self._game_active = False
         self._last_game_data = None
@@ -188,8 +222,10 @@ class LoLOverlayApp:
         self._last_events = []
         self._last_suggestions = []
         self._last_objective_timers = None
+        self._last_threats = []
         self.event_engine.reset()
         self.objective_tracker.reset()
+        self.spell_tracker.reset()
         logger.info("Game ended. Waiting for next game...")
         self.overlay.show_text("Game ended. Waiting for next game...")
 
@@ -262,6 +298,21 @@ class LoLOverlayApp:
                 )
             if obj_parts:
                 lines.append(" | ".join(obj_parts))
+
+        # Threat scores
+        if self._last_threats:
+            lines.append("⚠️ Threats:")
+            for t in self._last_threats[:3]:
+                lines.append(t.overlay_line())
+
+        # Enemy spell cooldowns
+        enemy_champs = [e.champion_name for e in game_data.enemies]
+        spell_lines = self.spell_tracker.get_enemy_lines(
+            enemy_champs, game_data.game_time
+        )
+        if spell_lines:
+            lines.append("🔮 Spell CDs:")
+            lines.extend(spell_lines)
 
         # Enemy info (top 3 threats by level/kills)
         if game_data.enemies:
