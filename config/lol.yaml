@@ -1,5 +1,8 @@
 game: lol
 
+# Seconds before the same alert can fire again (prevents spam)
+alert_cooldown: 30
+
 capture:
   minimap_region: [1600, 800, 300, 300]
 
@@ -9,6 +12,32 @@ vision:
 
 mapping:
   enemy_icon: enemy
+
+# HUD OCR regions (x, y, w, h) for 1920×1080
+hud_regions:
+  gold: [870, 880, 120, 30]
+  cs: [1060, 880, 60, 25]
+  kda: [160, 880, 140, 25]
+  level: [30, 830, 30, 25]
+  game_time: [930, 0, 60, 25]
+
+# Spell tracker
+spell_tracker:
+  enabled: true
+
+# Threat scorer
+threat_scorer:
+  enabled: true
+  top_n: 3
+
+# Build recommender
+build_recommender:
+  enabled: true
+  auto_import_runes: false
+
+# Match history
+match_history:
+  enabled: true
 
 rules:
   - name: enemy_missing

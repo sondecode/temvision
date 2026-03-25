@@ -11,6 +11,9 @@ from temvision.config.loader import ConfigLoader
 from temvision.decision.engine import Decision, DecisionEngine
 from temvision.game.adapter import GameAdapter, adapter_registry
 from temvision.game.state import GameState
+from temvision.lol.game_detector import GamePhase
+from temvision.lol.pre_game import PreGameAnalyzer
+from temvision.lol.build_recommender import BuildRecommender, RuneImporter
 from temvision.output.overlay import Overlay
 from temvision.skills.loader import SkillLoader
 from temvision.vision.engine import VisionEngine
@@ -47,12 +50,24 @@ class TemvisionApp:
         # Initialize components
         self._capture = ScreenCapture()
         self._vision = VisionEngine()
-        self._overlay = Overlay(use_gui=use_gui)
+        alert_cooldown = float(self._config.get("alert_cooldown", 30.0))
+        self._overlay = Overlay(use_gui=use_gui, cooldown=alert_cooldown)
+        self._pre_game: PreGameAnalyzer | None = None
+        self._pre_game_last_fetch: float = 0.0
+        self._pre_game_fetch_interval: float = 5.0
 
         # Load game adapter
         self._adapter: GameAdapter | None = adapter_registry.get(game)
         if self._adapter is None:
             raise ValueError(f"No adapter found for game: {game}")
+
+        if game == "lol":
+            self._pre_game = PreGameAnalyzer()
+            self._build_rec = BuildRecommender()
+            self._rune_importer = RuneImporter()
+        else:
+            self._build_rec = None
+            self._rune_importer = None
 
         # Load skills
         self._skill_loader = SkillLoader(skills_dir)
@@ -109,6 +124,28 @@ class TemvisionApp:
 
     def _tick(self) -> None:
         """Execute one iteration of the vision-decision pipeline."""
+        # --- Phase check ---------------------------------------------------
+        # If the adapter supports phase detection, gate the pipeline on it.
+        phase = self._adapter.get_phase()
+        if phase is not None:
+            if phase == GamePhase.CLOSED:
+                self._overlay.show_text(
+                    f"⏳ Waiting for {self._game.upper()} to start...",
+                    priority="normal",
+                )
+                return
+            if phase == GamePhase.CLIENT_OPEN:
+                if self._pre_game is not None:
+                    self._maybe_show_pre_game()
+                else:
+                    self._overlay.show_text(
+                        "🔵 League client detected – waiting for a match to begin...",
+                        priority="normal",
+                    )
+                return
+            # GamePhase.IN_GAME → fall through to the full pipeline
+        # -------------------------------------------------------------------
+
         capture_config = self._config_loader.get_capture_config(self._config)
         vision_config = self._config_loader.get_vision_config(self._config)
         rules = self._config_loader.get_rules(self._config)
@@ -162,3 +199,45 @@ class TemvisionApp:
         return self._decision_engine.decide(
             state.to_dict(), rules, use_llm=self._use_llm
         )
+
+    # ------------------------------------------------------------------
+    # Pre-game (champ select) overlay for LoL
+    def _maybe_show_pre_game(self) -> None:
+        now = time.monotonic()
+        if now - self._pre_game_last_fetch < self._pre_game_fetch_interval:
+            return
+        self._pre_game_last_fetch = now
+
+        if self._pre_game is None:
+            return
+
+        info = self._pre_game.fetch()
+        if info is None:
+            self._overlay.show_text(
+                "🔵 League client detected – waiting for a match to begin...",
+                priority="normal",
+            )
+            return
+
+        lines = info.overlay_lines()
+        if not lines:
+            self._overlay.show_text(
+                "🔵 Champ select detected – loading data...",
+                priority="normal",
+            )
+            return
+
+        for line in lines:
+            self._overlay.show_text(line, priority="normal")
+
+        # Show build recommendation for ally champion picks
+        if self._build_rec is not None and info.allies:
+            for ally in info.allies:
+                if ally.champion_name:
+                    rec = self._build_rec.recommend(
+                        ally.champion_name, ally.position
+                    )
+                    if rec:
+                        build_lines = self._build_rec.overlay_lines(rec)
+                        for bl in build_lines:
+                            self._overlay.show_text(bl, priority="normal")

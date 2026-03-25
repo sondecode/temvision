@@ -6,6 +6,8 @@ from typing import Any
 
 from temvision.game.adapter import GameAdapter, adapter_registry
 from temvision.game.state import GameState
+from temvision.lol.client_api import LiveClientAPI
+from temvision.lol.game_detector import GameDetector, GamePhase
 from temvision.vision.engine import Detection
 
 
@@ -17,6 +19,8 @@ class LoLAdapter(GameAdapter):
 
     def __init__(self) -> None:
         self._state = GameState(game="lol")
+        self._detector = GameDetector()
+        self._live_api = LiveClientAPI()
 
     def process_detections(
         self,
@@ -30,3 +34,13 @@ class LoLAdapter(GameAdapter):
         self._state.update_from_detections(detections, mapping, detect_targets)
 
         return self._state
+
+    def get_phase(self) -> GamePhase:
+        """Return the current LoL session phase.
+
+        - CLOSED       → League client not running
+        - CLIENT_OPEN  → Client open (lobby / champion select)
+        - IN_GAME      → Active match in progress
+        """
+        live_api_running = self._live_api.is_game_running()
+        return self._detector.get_phase(live_api_running=live_api_running)
