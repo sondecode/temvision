@@ -11,6 +11,7 @@ from temvision.config.loader import ConfigLoader
 from temvision.decision.engine import Decision, DecisionEngine
 from temvision.game.adapter import GameAdapter, adapter_registry
 from temvision.game.state import GameState
+from temvision.lol.game_detector import GamePhase
 from temvision.output.overlay import Overlay
 from temvision.skills.loader import SkillLoader
 from temvision.vision.engine import VisionEngine
@@ -47,7 +48,8 @@ class TemvisionApp:
         # Initialize components
         self._capture = ScreenCapture()
         self._vision = VisionEngine()
-        self._overlay = Overlay(use_gui=use_gui)
+        alert_cooldown = float(self._config.get("alert_cooldown", 30.0))
+        self._overlay = Overlay(use_gui=use_gui, cooldown=alert_cooldown)
 
         # Load game adapter
         self._adapter: GameAdapter | None = adapter_registry.get(game)
@@ -109,6 +111,25 @@ class TemvisionApp:
 
     def _tick(self) -> None:
         """Execute one iteration of the vision-decision pipeline."""
+        # --- Phase check ---------------------------------------------------
+        # If the adapter supports phase detection, gate the pipeline on it.
+        phase = self._adapter.get_phase()
+        if phase is not None:
+            if phase == GamePhase.CLOSED:
+                self._overlay.show_text(
+                    f"⏳ Waiting for {self._game.upper()} to start...",
+                    priority="normal",
+                )
+                return
+            if phase == GamePhase.CLIENT_OPEN:
+                self._overlay.show_text(
+                    "🔵 League client detected – waiting for a match to begin...",
+                    priority="normal",
+                )
+                return
+            # GamePhase.IN_GAME → fall through to the full pipeline
+        # -------------------------------------------------------------------
+
         capture_config = self._config_loader.get_capture_config(self._config)
         vision_config = self._config_loader.get_vision_config(self._config)
         rules = self._config_loader.get_rules(self._config)

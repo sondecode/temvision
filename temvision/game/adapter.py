@@ -41,6 +41,14 @@ class GameAdapter(ABC):
         vision_config = config.get("vision", {})
         return vision_config.get("detect", [])
 
+    def get_phase(self) -> Any:
+        """Return the current game phase, or None if not supported.
+
+        Override in game-specific adapters to enable phase-gating in
+        the main loop. When this returns None the loop always runs.
+        """
+        return None
+
 
 class _AdapterRegistry:
     """Registry of game adapters."""

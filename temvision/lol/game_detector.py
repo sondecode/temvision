@@ -2,6 +2,7 @@
 
 import logging
 import platform
+from enum import Enum
 from typing import Optional
 
 import psutil
@@ -14,6 +15,14 @@ LOL_PROCESS_NAMES = {
     "darwin": ["leagueoflegends", "leagueclient"],
     "linux": ["leagueoflegends", "leagueclient"],
 }
+
+
+class GamePhase(Enum):
+    """Current phase of the League of Legends session."""
+
+    CLOSED = "closed"           # LoL client not running
+    CLIENT_OPEN = "client_open" # Client open (lobby / champion select)
+    IN_GAME = "in_game"         # Active match in progress
 
 
 class GameDetector:
@@ -63,3 +72,21 @@ class GameDetector:
             logger.debug("Error getting game PID: %s", e)
 
         return None
+
+    def get_phase(self, live_api_running: bool = False) -> GamePhase:
+        """Determine the current phase of the LoL session.
+
+        Args:
+            live_api_running: Whether the Live Client API at port 2999
+                is responding (caller should check via LiveClientAPI).
+
+        Returns:
+            GamePhase.CLOSED         – LoL client not detected in processes.
+            GamePhase.CLIENT_OPEN    – Client is open (lobby / champion select).
+            GamePhase.IN_GAME        – An active match is in progress.
+        """
+        if live_api_running:
+            return GamePhase.IN_GAME
+        if self.is_game_running():
+            return GamePhase.CLIENT_OPEN
+        return GamePhase.CLOSED

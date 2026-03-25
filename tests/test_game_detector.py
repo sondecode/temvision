@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from temvision.lol.game_detector import GameDetector, LOL_PROCESS_NAMES
+from temvision.lol.game_detector import GameDetector, GamePhase, LOL_PROCESS_NAMES
 
 
 class TestGameDetector:
@@ -75,3 +75,29 @@ class TestGameDetector:
             process_names=["league of legends.exe"]
         )
         assert detector.is_game_running() is False
+
+
+class TestGamePhase:
+    """Test GamePhase enum and get_phase() logic."""
+
+    def test_phase_closed_when_process_not_running(self):
+        detector = GameDetector(process_names=["league of legends.exe"])
+        with patch.object(detector, "is_game_running", return_value=False):
+            phase = detector.get_phase(live_api_running=False)
+        assert phase == GamePhase.CLOSED
+
+    def test_phase_client_open_when_process_running_no_api(self):
+        detector = GameDetector(process_names=["league of legends.exe"])
+        with patch.object(detector, "is_game_running", return_value=True):
+            phase = detector.get_phase(live_api_running=False)
+        assert phase == GamePhase.CLIENT_OPEN
+
+    def test_phase_in_game_when_live_api_responds(self):
+        detector = GameDetector(process_names=["league of legends.exe"])
+        phase = detector.get_phase(live_api_running=True)
+        assert phase == GamePhase.IN_GAME
+
+    def test_phase_enum_values(self):
+        assert GamePhase.CLOSED.value == "closed"
+        assert GamePhase.CLIENT_OPEN.value == "client_open"
+        assert GamePhase.IN_GAME.value == "in_game"

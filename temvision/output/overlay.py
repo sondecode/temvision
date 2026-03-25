@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+# Default cooldown in seconds before the same alert can fire again
+DEFAULT_COOLDOWN = 30.0
 
 
 @dataclass
@@ -22,19 +26,33 @@ class Overlay:
 
     In headless/CLI mode, messages are logged to console.
     When PySide6 is available, a transparent overlay window is used.
+
+    Duplicate suppression: the same message text will not be shown again
+    until ``cooldown`` seconds have elapsed since its last display.
     """
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, cooldown: float = DEFAULT_COOLDOWN) -> None:
         self._use_gui = use_gui
+        self._cooldown = cooldown
         self._message_history: list[OverlayMessage] = []
+        self._last_shown: dict[str, float] = {}  # text → last display timestamp
         self._gui_window = None
 
     def show(self, message: OverlayMessage) -> None:
         """Display a message on the overlay.
 
+        Suppresses the message if the same text was shown within the
+        configured cooldown window.
+
         Args:
             message: The OverlayMessage to display.
         """
+        now = time.monotonic()
+        last = self._last_shown.get(message.text, 0.0)
+        if now - last < self._cooldown:
+            return
+
+        self._last_shown[message.text] = now
         self._message_history.append(message)
 
         if self._use_gui:

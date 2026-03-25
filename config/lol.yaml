@@ -1,5 +1,8 @@
 game: lol
 
+# Seconds before the same alert can fire again (prevents spam)
+alert_cooldown: 30
+
 capture:
   minimap_region: [1600, 800, 300, 300]
 
