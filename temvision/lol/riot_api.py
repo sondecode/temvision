@@ -12,6 +12,7 @@ from typing import Optional
 
 import requests
 
+from temvision.lol.http_client import HttpClient
 from temvision.lol.models import PreGameStats
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,13 @@ class RiotAPI:
         self._session = requests.Session()
         if self.api_key:
             self._session.headers["X-Riot-Token"] = self.api_key
+        self._http = HttpClient(
+            timeout=timeout,
+            verify=True,
+            retries=2,
+            backoff_seconds=0.25,
+            session=self._session,
+        )
 
     def is_available(self) -> bool:
         """Check if API key is configured."""
@@ -101,13 +109,10 @@ class RiotAPI:
             f"https://{self.routing}.api.riotgames.com"
             f"/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}"
         )
-        try:
-            resp = self._session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("Failed to fetch summoner: %s", e)
+        resp = self._http.request("GET", url)
+        if resp is None:
             return None
+        return resp.json()
 
     def get_ranked_stats(self, summoner_id: str) -> Optional[list]:
         """Fetch ranked stats for a summoner.
@@ -125,13 +130,10 @@ class RiotAPI:
             f"https://{self.platform}.api.riotgames.com"
             f"/lol/league/v4/entries/by-summoner/{summoner_id}"
         )
-        try:
-            resp = self._session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("Failed to fetch ranked stats: %s", e)
+        resp = self._http.request("GET", url)
+        if resp is None:
             return None
+        return resp.json()
 
     def get_match_history(
         self, puuid: str, count: int = 10
@@ -152,15 +154,12 @@ class RiotAPI:
             f"https://{self.routing}.api.riotgames.com"
             f"/lol/match/v5/matches/by-puuid/{puuid}/ids"
         )
-        try:
-            resp = self._session.get(
-                url, params={"count": count}, timeout=self.timeout
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("Failed to fetch match history: %s", e)
+        resp = self._http.request(
+            "GET", url, params={"count": count}
+        )
+        if resp is None:
             return None
+        return resp.json()
 
     def get_match_detail(self, match_id: str) -> Optional[dict]:
         """Fetch details for a specific match.
@@ -178,13 +177,10 @@ class RiotAPI:
             f"https://{self.routing}.api.riotgames.com"
             f"/lol/match/v5/matches/{match_id}"
         )
-        try:
-            resp = self._session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("Failed to fetch match detail: %s", e)
+        resp = self._http.request("GET", url)
+        if resp is None:
             return None
+        return resp.json()
 
     def build_pre_game_stats(
         self, summoner_name: str, ranked_data: list, matches: list
@@ -253,4 +249,4 @@ class RiotAPI:
 
     def close(self):
         """Close the HTTP session."""
-        self._session.close()
+        self._http.close()
