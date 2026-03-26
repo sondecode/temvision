@@ -1,59 +1,24 @@
-"""LoL Desktop Overlay - Entry Point.
+"""Compatibility wrapper for legacy LoL overlay entrypoint.
 
-Usage:
-    python lol_overlay.py
-    python lol_overlay.py --gui
-    python lol_overlay.py --interval 0.5
-
-Starts the OP.GG-style desktop overlay for League of Legends.
+Preferred usage:
+    python main.py --game=lol
 """
 
-import argparse
-import logging
+from __future__ import annotations
+
+import warnings
 import sys
 
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="LoL Desktop Overlay - OP.GG style game overlay"
-    )
-    parser.add_argument(
-        "--gui",
-        action="store_true",
-        help="Enable GUI overlay (requires PySide6)",
-    )
-    parser.add_argument(
-        "--interval",
-        type=float,
-        default=1.0,
-        help="Update interval in seconds (default: 1.0)",
-    )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging",
-    )
-
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    from temvision.lol.overlay_app import LoLOverlayApp
-
-    app = LoLOverlayApp(
-        update_interval=args.interval,
-        use_gui=args.gui,
-    )
-
-    try:
-        app.run()
-    except KeyboardInterrupt:
-        app.stop()
-        sys.exit(0)
+from main import main as temvision_main
 
 
 if __name__ == "__main__":
-    main()
+    warnings.warn(
+        "`python lol_overlay.py` is deprecated. "
+        "Please use `python main.py --game=lol`.",
+        DeprecationWarning,
+        stacklevel=1,
+    )
+    if "--game" not in sys.argv:
+        sys.argv = [sys.argv[0], "--game=lol", *sys.argv[1:]]
+    temvision_main()

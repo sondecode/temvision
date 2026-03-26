@@ -1,5 +1,5 @@
-# LoL Desktop Overlay Configuration
-# OP.GG-style overlay settings
+# Deprecated compatibility config.
+# Unified entrypoint now uses `config/lol.yaml` via `python main.py --game=lol`.
 
 game: lol
 
@@ -8,6 +8,14 @@ overlay:
   fast_interval: 0.25
   slow_interval: 1.0
   max_suggestions: 5
+
+# Feature flags for data-source layer
+data_sources:
+  live_api: true
+  pre_game: true
+  post_game: true
+  ocr_fallback: true
+  minimap_detector: true
 
 # Live Client API settings
 client_api:
