@@ -5,6 +5,7 @@ Mục tiêu sau cập nhật này là **một entrypoint duy nhất cho LoL**:
 - `python main.py --game=lol`
 
 Không tách `overlay mode` riêng nữa. `lol_overlay.py` chỉ giữ vai trò tương thích ngược.
+Runtime chính được gom vào `temvision/lol/module.py` (LoLModule).
 
 ## 1) Config chuẩn
 

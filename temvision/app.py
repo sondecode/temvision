@@ -84,9 +84,9 @@ class TemvisionApp:
         # Unified LoL module: use the richer LoL pipeline from the single
         # standard entrypoint `python main.py --game=lol`.
         if game == "lol":
-            from temvision.lol.overlay_app import LoLOverlayApp
+            from temvision.lol.module import LoLModule
 
-            self._lol_module = LoLOverlayApp(use_gui=use_gui)
+            self._lol_module = LoLModule(use_gui=use_gui)
 
         logger.info("Temvision initialized for game: %s", game)
         logger.info("Loaded %d skills", len(skills))

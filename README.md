@@ -275,3 +275,4 @@ Entrypoint chuẩn cho LoL:
 Xem chi tiết chuẩn hoá config + data source flags tại:
 
 - `docs_lol_config_migration.md`
+- `docs_lol_feature_matrix_vi.md` (đề xuất giữ/bỏ/refactor tính năng LoL)
