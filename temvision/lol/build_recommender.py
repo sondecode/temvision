@@ -147,7 +147,6 @@ class RuneImporter:
                 if p.get("name", "").startswith("Temvision") and p.get("isDeletable"):
                     pid = p.get("id")
                     if pid:
-                        self._lcu.get(f"/lol-perks/v1/pages/{pid}")  # read
                         self._delete_page(pid)
 
         payload = {
@@ -166,38 +165,13 @@ class RuneImporter:
 
     def _delete_page(self, page_id: int) -> None:
         """Delete an existing rune page by ID."""
-        lock = self._lcu._read_lockfile()
-        if lock is None:
-            return
-        import requests
-        import base64
-        url = f"{self._lcu._build_base_url(lock)}/lol-perks/v1/pages/{page_id}"
-        headers = self._lcu._headers(lock)
-        try:
-            requests.delete(url, headers=headers, timeout=2.0, verify=False)
-        except Exception as exc:
-            logger.debug("Failed to delete rune page %d: %s", page_id, exc)
+        ok = self._lcu.delete(f"/lol-perks/v1/pages/{page_id}")
+        if not ok:
+            logger.debug("Failed to delete rune page %d", page_id)
 
     def _lcu_post(self, path: str, payload: dict) -> Optional[dict]:
         """POST request to LCU API."""
-        lock = self._lcu._read_lockfile()
-        if lock is None:
-            return None
-        import requests
-        import base64
-        url = f"{self._lcu._build_base_url(lock)}{path}"
-        headers = self._lcu._headers(lock)
-        headers["Content-Type"] = "application/json"
-        try:
-            resp = requests.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=2.0,
-                verify=False,
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as exc:
-            logger.debug("LCU POST %s failed: %s", path, exc)
-            return None
+        result = self._lcu.post(path, payload)
+        if result is None:
+            logger.debug("LCU POST %s failed", path)
+        return result
