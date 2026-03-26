@@ -79,6 +79,14 @@ class TemvisionApp:
 
         self._running = False
         self._loop_interval = 1.0  # seconds between frames
+        self._lol_module = None
+
+        # Unified LoL module: use the richer LoL pipeline from the single
+        # standard entrypoint `python main.py --game=lol`.
+        if game == "lol":
+            from temvision.lol.module import LoLModule
+
+            self._lol_module = LoLModule(use_gui=use_gui)
 
         logger.info("Temvision initialized for game: %s", game)
         logger.info("Loaded %d skills", len(skills))
@@ -100,6 +108,10 @@ class TemvisionApp:
 
     def run(self) -> None:
         """Start the main vision-decision loop."""
+        if self._lol_module is not None:
+            self._lol_module.run()
+            return
+
         self._running = True
         self._capture.start()
 
@@ -118,6 +130,10 @@ class TemvisionApp:
 
     def stop(self) -> None:
         """Stop the application."""
+        if self._lol_module is not None:
+            self._lol_module.stop()
+            return
+
         self._running = False
         self._capture.stop()
         logger.info("Temvision stopped")

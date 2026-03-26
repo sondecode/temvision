@@ -1,4 +1,18 @@
 game: lol
+run_mode: framework
+
+overlay:
+  update_interval: 1.0
+  fast_interval: 0.25
+  slow_interval: 1.0
+  max_suggestions: 5
+
+data_sources:
+  live_api: true
+  pre_game: true
+  post_game: true
+  ocr_fallback: true
+  minimap_detector: true
 
 # Seconds before the same alert can fire again (prevents spam)
 alert_cooldown: 30

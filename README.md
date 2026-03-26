@@ -248,3 +248,31 @@ MIT License
 ## 🔥 Vision
 
 > “Make AI understand games like humans do”
+
+
+## 📡 LoL Data Sources & Compliance
+
+Dữ liệu cho chế độ League of Legends hiện kết hợp từ:
+
+- **Live Client API** (`https://127.0.0.1:2999`) cho trạng thái trận đấu real-time.
+- **LCU local API** (đọc lockfile) cho phase/champ select/runes.
+- **Riot Developer API** (cần `RIOT_API_KEY`) cho rank + match history.
+- **Screen Vision/OCR** như lớp bổ sung cho tín hiệu trên HUD/minimap.
+
+> Lưu ý: Temvision **không** lấy dữ liệu từ "source game" theo nghĩa truy cập mã nguồn nội bộ,
+> không inject process, không đọc memory game.
+
+## 🕹️ LoL Run
+
+Entrypoint chuẩn cho LoL:
+
+- `python main.py --game=lol`
+- sử dụng module LoL thống nhất và config `config/lol.yaml`
+
+### LoL migration guide
+
+Xem chi tiết chuẩn hoá config + data source flags/use-case tại:
+
+- `docs_lol_config_migration.md`
+- `docs_lol_feature_matrix_vi.md` (đề xuất giữ/bỏ/refactor tính năng LoL)
+- `docs_lol_ai_coaching_supporter_vi.md` (use cases + hướng dẫn sử dụng)

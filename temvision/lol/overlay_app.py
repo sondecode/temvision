@@ -11,11 +11,19 @@ Uses a dual-speed update loop:
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Optional
+
+import yaml
 
 from temvision.lol.build_recommender import BuildRecommender
 from temvision.lol.champion_config import ChampionConfig
 from temvision.lol.client_api import LiveClientAPI
+from temvision.lol.data_sources import (
+    LiveGameDataProvider,
+    PostGameDataProvider,
+    PreGameDataProvider,
+)
 from temvision.lol.event_engine import EventEngine, GameEvent
 from temvision.lol.feature_engine import FeatureEngine, GameFeatures
 from temvision.lol.game_detector import GameDetector
@@ -26,6 +34,7 @@ from temvision.lol.minimap_detector import MinimapDetector, MinimapSnapshot
 from temvision.lol.models import GameData
 from temvision.lol.objective_tracker import ObjectiveTracker, ObjectiveTimers
 from temvision.lol.post_game import PostGameAnalyzer
+from temvision.lol.pre_game import PreGameAnalyzer
 from temvision.lol.report import ReportGenerator
 from temvision.lol.spell_tracker import SpellTracker
 from temvision.lol.suggestion_engine import SuggestionEngine, Suggestion
@@ -38,6 +47,16 @@ logger = logging.getLogger(__name__)
 # Default loop intervals
 DEFAULT_FAST_INTERVAL = 0.25
 DEFAULT_SLOW_INTERVAL = 1.0
+DEFAULT_OVERLAY_CONFIG = "config/lol.yaml"
+
+
+@dataclass
+class LoLFeatureFlags:
+    live_api: bool = True
+    pre_game: bool = True
+    post_game: bool = True
+    ocr_fallback: bool = True
+    minimap_detector: bool = True
 
 
 class LoLOverlayApp:
@@ -64,11 +83,22 @@ class LoLOverlayApp:
         fast_interval: float = DEFAULT_FAST_INTERVAL,
         slow_interval: float = DEFAULT_SLOW_INTERVAL,
         use_gui: bool = False,
+        config_path: str = DEFAULT_OVERLAY_CONFIG,
     ):
-        self.update_interval = update_interval
-        self.fast_interval = fast_interval
-        self.slow_interval = slow_interval
+        self._config = self._load_overlay_config(config_path)
+        config_overlay = self._config.get("overlay", {})
+
+        self.update_interval = float(
+            config_overlay.get("update_interval", update_interval)
+        )
+        self.fast_interval = float(
+            config_overlay.get("fast_interval", fast_interval)
+        )
+        self.slow_interval = float(
+            config_overlay.get("slow_interval", slow_interval)
+        )
         self.use_gui = use_gui
+        self.feature_flags = self._load_feature_flags(self._config)
 
         # Core components
         self.detector = GameDetector()
@@ -89,6 +119,21 @@ class LoLOverlayApp:
         self.screen_capture = ScreenCapture()
         self.champion_config = ChampionConfig()
         self.overlay = Overlay(use_gui=use_gui)
+        self.pre_game_analyzer = PreGameAnalyzer()
+
+        self.live_provider = LiveGameDataProvider(
+            api=self.client_api,
+            enabled=self.feature_flags.live_api,
+        )
+        self.pre_game_provider = PreGameDataProvider(
+            analyzer=self.pre_game_analyzer,
+            enabled=self.feature_flags.pre_game,
+        )
+        self.post_game_provider = PostGameDataProvider(
+            analyzer=self.post_game_analyzer,
+            history=self.match_history,
+            enabled=self.feature_flags.post_game,
+        )
 
         # State
         self._running = False
@@ -127,6 +172,28 @@ class LoLOverlayApp:
         finally:
             self.stop()
 
+    @staticmethod
+    def _load_overlay_config(config_path: str) -> dict:
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            if not isinstance(cfg, dict):
+                return {}
+            return cfg
+        except OSError:
+            return {}
+
+    @staticmethod
+    def _load_feature_flags(config: dict) -> LoLFeatureFlags:
+        raw = config.get("data_sources", {})
+        return LoLFeatureFlags(
+            live_api=bool(raw.get("live_api", True)),
+            pre_game=bool(raw.get("pre_game", True)),
+            post_game=bool(raw.get("post_game", True)),
+            ocr_fallback=bool(raw.get("ocr_fallback", True)),
+            minimap_detector=bool(raw.get("minimap_detector", True)),
+        )
+
     def stop(self):
         """Stop the overlay application."""
         self._running = False
@@ -149,15 +216,31 @@ class LoLOverlayApp:
         now = time.monotonic()
         self._tick_count += 1
 
-        game_running = self.client_api.is_game_running()
+        game_running = (
+            self.client_api.is_game_running()
+            if self.feature_flags.live_api
+            else False
+        )
 
         if game_running and not self._game_active:
             self._on_game_start()
         elif not game_running and self._game_active:
             self._on_game_end()
 
+        if not self._game_active and self.pre_game_provider.is_enabled():
+            info = self.pre_game_provider.fetch()
+            if info is not None:
+                lines = info.overlay_lines()
+                if lines:
+                    self.overlay.show(
+                        OverlayMessage(
+                            text="\n".join(lines[:4]), priority="normal"
+                        )
+                    )
+                return
+
         if self._game_active:
-            raw_data = self.client_api.get_all_game_data()
+            raw_data = self.live_provider.fetch()
 
             # --- API watchdog: degrade to OCR if API fails ---
             if raw_data is None:
@@ -165,7 +248,8 @@ class LoLOverlayApp:
                 if self._api_fail_count >= 3:
                     self._api_healthy = False
                     logger.debug("API unhealthy – falling back to OCR")
-                self._run_ocr_fallback()
+                if self.feature_flags.ocr_fallback:
+                    self._run_ocr_fallback()
                 return
             else:
                 if not self._api_healthy:
@@ -236,14 +320,15 @@ class LoLOverlayApp:
         self.item_tracker.update(game_data.game_time)
 
         # Minimap detection (screen capture)
-        try:
-            frame = self.screen_capture.capture_full()
-            if frame is not None:
-                self._last_minimap = self.minimap_detector.detect(
-                    frame, game_data.game_time
-                )
-        except Exception as exc:
-            logger.debug("Minimap capture failed: %s", exc)
+        if self.feature_flags.minimap_detector:
+            try:
+                frame = self.screen_capture.capture_full()
+                if frame is not None:
+                    self._last_minimap = self.minimap_detector.detect(
+                        frame, game_data.game_time
+                    )
+            except Exception as exc:
+                logger.debug("Minimap capture failed: %s", exc)
 
     def _on_game_start(self):
         """Handle game start event."""
@@ -264,10 +349,10 @@ class LoLOverlayApp:
         """Handle game end event."""
         # Run post-game analysis before clearing data
         if self._last_game_data is not None:
-            post_game = self.post_game_analyzer.analyze(self._last_game_data)
+            post_game = self.post_game_provider.analyze(self._last_game_data)
             if post_game is not None:
                 self._display_post_game(post_game)
-                self.match_history.save(post_game)
+                self.post_game_provider.persist(post_game)
                 # Generate improvement report
                 report = self.report_generator.generate(post_game)
                 report_lines = report.overlay_lines()
@@ -320,10 +405,11 @@ class LoLOverlayApp:
             lines.append(f"⏱️ {hud.game_time_str}")
 
         # Minimap detection still works in OCR mode
-        minimap = self.minimap_detector.detect(frame)
-        if minimap.detections:
-            lines.append("🗺️  Minimap:")
-            lines.extend(minimap.overlay_lines())
+        if self.feature_flags.minimap_detector:
+            minimap = self.minimap_detector.detect(frame)
+            if minimap.detections:
+                lines.append("🗺️  Minimap:")
+                lines.extend(minimap.overlay_lines())
 
         if len(lines) > 1:
             self.overlay.show(OverlayMessage(

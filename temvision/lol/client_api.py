@@ -14,6 +14,7 @@ import warnings
 import requests
 import urllib3
 
+from temvision.lol.http_client import HttpClient
 from temvision.lol.models import PlayerData, GameData
 
 logger = logging.getLogger(__name__)
@@ -37,9 +38,13 @@ class LiveClientAPI:
         self.base_url = base_url
         self.timeout = timeout
         self._session = requests.Session()
-        # The League Client uses a self-signed certificate on localhost,
-        # so SSL verification must be disabled for this specific session.
-        self._session.verify = False
+        self._http = HttpClient(
+            timeout=timeout,
+            verify=False,
+            retries=1,
+            backoff_seconds=0.15,
+            session=self._session,
+        )
         # Suppress InsecureRequestWarning only for this session's adapter
         warnings.filterwarnings(
             "ignore",
@@ -53,6 +58,7 @@ class LiveClientAPI:
             resp = self._session.get(
                 f"{self.base_url}{ENDPOINTS['game_stats']}",
                 timeout=self.timeout,
+                verify=False,
             )
             return resp.status_code == 200
         except requests.ConnectionError:
@@ -62,42 +68,30 @@ class LiveClientAPI:
 
     def get_all_game_data(self) -> Optional[dict]:
         """Fetch all game data from the Live Client API."""
-        try:
-            resp = self._session.get(
-                f"{self.base_url}{ENDPOINTS['all_game_data']}",
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("Failed to fetch game data: %s", e)
+        resp = self._http.request(
+            "GET", f"{self.base_url}{ENDPOINTS['all_game_data']}"
+        )
+        if resp is None:
             return None
+        return resp.json()
 
     def get_active_player(self) -> Optional[dict]:
         """Fetch active player data."""
-        try:
-            resp = self._session.get(
-                f"{self.base_url}{ENDPOINTS['active_player']}",
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("Failed to fetch active player: %s", e)
+        resp = self._http.request(
+            "GET", f"{self.base_url}{ENDPOINTS['active_player']}"
+        )
+        if resp is None:
             return None
+        return resp.json()
 
     def get_player_list(self) -> Optional[list]:
         """Fetch the list of all players in the game."""
-        try:
-            resp = self._session.get(
-                f"{self.base_url}{ENDPOINTS['player_list']}",
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("Failed to fetch player list: %s", e)
+        resp = self._http.request(
+            "GET", f"{self.base_url}{ENDPOINTS['player_list']}"
+        )
+        if resp is None:
             return None
+        return resp.json()
 
     def parse_game_data(self, raw_data: dict) -> GameData:
         """Parse raw API response into GameData model.
@@ -196,4 +190,4 @@ class LiveClientAPI:
 
     def close(self):
         """Close the HTTP session."""
-        self._session.close()
+        self._http.close()

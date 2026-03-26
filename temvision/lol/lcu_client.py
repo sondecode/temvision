@@ -16,6 +16,8 @@ from typing import Optional
 
 import requests
 
+from temvision.lol.http_client import HttpClient
+
 logger = logging.getLogger(__name__)
 
 # Default lockfile paths per platform
@@ -47,6 +49,13 @@ class LCUClient:
         )
         self.timeout = timeout
         self._session = requests.Session()
+        self._http = HttpClient(
+            timeout=timeout,
+            verify=False,
+            retries=1,
+            backoff_seconds=0.1,
+            session=self._session,
+        )
 
     def _read_lockfile(self) -> Optional[Lockfile]:
         if not self.lockfile_path or not os.path.exists(self.lockfile_path):
@@ -97,18 +106,37 @@ class LCUClient:
         if lock is None:
             return None
         url = f"{self._build_base_url(lock)}{path}"
-        try:
-            resp = self._session.get(
-                url,
-                headers=self._headers(lock),
-                timeout=self.timeout,
-                verify=False,  # LCU uses self-signed cert
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as exc:
-            logger.debug("LCU GET %s failed: %s", path, exc)
+        resp = self._http.request(
+            "GET",
+            url,
+            headers=self._headers(lock),
+        )
+        if resp is None:
             return None
+        return resp.json()
+
+
+    def post(self, path: str, payload: dict) -> Optional[dict]:
+        """Perform a POST request to the LCU API."""
+        lock = self._read_lockfile()
+        if lock is None:
+            return None
+        url = f"{self._build_base_url(lock)}{path}"
+        headers = self._headers(lock)
+        headers["Content-Type"] = "application/json"
+        resp = self._http.request("POST", url, headers=headers, json=payload)
+        if resp is None:
+            return None
+        return resp.json()
+
+    def delete(self, path: str) -> bool:
+        """Perform a DELETE request to the LCU API."""
+        lock = self._read_lockfile()
+        if lock is None:
+            return False
+        url = f"{self._build_base_url(lock)}{path}"
+        resp = self._http.request("DELETE", url, headers=self._headers(lock))
+        return resp is not None
 
     # --- High-level helpers -------------------------------------------------
     def get_champ_select_session(self) -> Optional[dict]:
@@ -120,4 +148,4 @@ class LCUClient:
         return self.get("/lol-summoner/v1/current-summoner")
 
     def close(self) -> None:
-        self._session.close()
+        self._http.close()
